@@ -37,7 +37,7 @@ function frame(el, { height = 180, padL = 44, padR = 12, padT = 10, padB = 26 } 
     tip.innerHTML = html;
     tip.hidden = false;
     const r = el.getBoundingClientRect();
-    tip.style.left = `${Math.min(x, r.width - tip.offsetWidth - 8)}px`;
+    tip.style.left = `${Math.max(4, Math.min(x, r.width - tip.offsetWidth - 8))}px`;
     tip.style.top = `${Math.max(0, y - tip.offsetHeight - 10)}px`;
   };
   const hideTip = () => (tip.hidden = true);
