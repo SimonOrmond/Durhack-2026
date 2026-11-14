@@ -39,33 +39,14 @@ const elbowStraight = (minDeg, cue) => ({
 
 export const EXERCISES = {
   // --- Upper-body exercises first (default in UI) -----------------------------
-  curl: {
-    name: "Elbow flexion (bicep curl)",
-    group: "Elbow",
-    concentric: "toTarget", // curling the hand up is the upward/lifting phase
-    instructions: "Face the camera, arm by your side. Curl your hand up towards your shoulder to jump, then lower with control.",
-    joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW), side(s, LM.L_WRIST, LM.R_WRIST)],
-    restAngle: 148,
-    targetAngle: 58,
-    formChecks: [
-      {
-        test: ({ lm, s, aspect }) => {
-          const sh = lm[side(s, LM.L_SHOULDER, LM.R_SHOULDER)];
-          const el = lm[side(s, LM.L_ELBOW, LM.R_ELBOW)];
-          return tiltFromVertical(sh, el, aspect) > 42 ? "Keep your elbow tucked in" : null;
-        },
-      },
-    ],
-  },
-
   shoulderRaise: {
     name: "Shoulder abduction (arm raise)",
     group: "Shoulder",
     concentric: "toTarget",
-    instructions: "Face the camera. Raise one arm out to the side up to shoulder height to jump, then lower slowly.",
+    instructions: "Face the camera. Raise one arm out to the side up to shoulder height to glide or jump, then lower slowly.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW)],
-    restAngle: 20,
-    targetAngle: 105,
+    restAngle: 22,
+    targetAngle: 100,
     formChecks: [trunkUpright(16, "Keep your torso upright")],
   },
 
@@ -85,6 +66,25 @@ export const EXERCISES = {
           const hip = lm[side(s, LM.L_HIP, LM.R_HIP)];
           const sh = lm[side(s, LM.L_SHOULDER, LM.R_SHOULDER)];
           return tiltFromVertical(hip, sh, aspect) > 20 ? "Don't lean back, keep your trunk still" : null;
+        },
+      },
+    ],
+  },
+
+  curl: {
+    name: "Elbow flexion (bicep curl)",
+    group: "Elbow",
+    concentric: "toTarget", // curling the hand up is the upward/lifting phase
+    instructions: "Face the camera, arm by your side. Curl your hand up towards your shoulder to jump, then lower with control.",
+    joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW), side(s, LM.L_WRIST, LM.R_WRIST)],
+    restAngle: 148,
+    targetAngle: 58,
+    formChecks: [
+      {
+        test: ({ lm, s, aspect }) => {
+          const sh = lm[side(s, LM.L_SHOULDER, LM.R_SHOULDER)];
+          const el = lm[side(s, LM.L_ELBOW, LM.R_ELBOW)];
+          return tiltFromVertical(sh, el, aspect) > 42 ? "Keep your elbow tucked in" : null;
         },
       },
     ],

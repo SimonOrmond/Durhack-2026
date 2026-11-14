@@ -262,7 +262,22 @@ loadPlan();
 const counter = new RepCounter();
 const smoother = new Smoother(0.35);
 const game = new RunnerGame($("game"));
+const gameModeSelect = $("game-mode");
+function syncGameHelp(mode) {
+  const el = $("game-help");
+  if (!el) return;
+  el.innerHTML =
+    mode === "runner"
+      ? "<b>Move UP</b> to jump · <b>Move DOWN</b> to duck · Collect <b>coins</b> &amp; beat your <b>PB</b>"
+      : "<b>Raise</b> &amp; <b>lower</b> smoothly to steer Dino Dan through gates · Collect <b>coins</b> &amp; beat your <b>PB</b>";
+}
 game.setConcentric(exercise.concentric);
+game.setMode(gameModeSelect?.value ?? "glider");
+syncGameHelp(game.mode);
+gameModeSelect?.addEventListener("change", () => {
+  game.setMode(gameModeSelect.value);
+  syncGameHelp(game.mode);
+});
 
 let lastCue = null;
 let cueTimer = 0;

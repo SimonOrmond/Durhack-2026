@@ -15,6 +15,12 @@
       <label>Free play
         <select id="exercise"></select>
       </label>
+      <label>Game
+        <select id="game-mode">
+          <option value="glider">Flappy Glider</option>
+          <option value="runner">Dino Runner</option>
+        </select>
+      </label>
       <label>Side
         <select id="side">
           <option value="auto">Auto</option>
@@ -46,8 +52,8 @@
         <div class="game-pane">
           <div class="game-wrap">
             <canvas id="game" width="760" height="450"></canvas>
-            <div class="game-help">
-              <b>Move UP</b> to jump · <b>Move DOWN</b> to duck · Collect <b>coins</b> &amp; beat your <b>PB</b>
+            <div class="game-help" id="game-help">
+              <b>Raise</b> &amp; <b>lower</b> smoothly to steer Dino Dan through gates · Collect <b>coins</b> &amp; beat your <b>PB</b>
             </div>
           </div>
         </div>

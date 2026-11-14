@@ -1,9 +1,12 @@
 // Stage 4: DurHack Dino ("Dino Dan") game driven by exercise motion.
-//   upward lift / stand-up -> Dino Dan jumps (height scales with ROM)
-//   downward return / squat -> Dino Dan ducks under flying obstacles & collects low coins
-//   hold at target          -> charges the shield meter
+// Supports two modes:
+//   - "glider" (default): 1:1 joint-angle-to-altitude hang-gliding through wide pipe gates + coin trails
+//   - "runner": upward lift -> Dino Dan jumps, downward return -> duck, hold -> charges shield
 
-const PB_KEY = "durhack_dino_pb";
+const PB_KEYS = {
+  glider: "durhack_glider_pb",
+  runner: "durhack_dino_pb",
+};
 
 export class RunnerGame {
   constructor(canvas) {
@@ -12,10 +15,8 @@ export class RunnerGame {
     this.W = canvas.width || 480;
     this.H = 320;
     this.groundY = this.H - 46;
-    this.pb = 0;
-    try {
-      this.pb = Number(globalThis.localStorage?.getItem?.(PB_KEY) || 0) || 0;
-    } catch {}
+    this.mode = "glider";
+    this.#loadPb();
     this.reset();
     this.resize();
     if (typeof ResizeObserver !== "undefined") {
@@ -24,6 +25,26 @@ export class RunnerGame {
     }
     this.last = performance.now();
     requestAnimationFrame((t) => this.loop(t));
+  }
+
+  #pbKey() {
+    return PB_KEYS[this.mode] || PB_KEYS.glider;
+  }
+
+  #loadPb() {
+    let v = 0;
+    try {
+      v = Number(globalThis.localStorage?.getItem?.(this.#pbKey()) || 0) || 0;
+    } catch {}
+    this.pb = v;
+  }
+
+  setMode(mode) {
+    const next = mode === "runner" ? "runner" : "glider";
+    if (next === this.mode) return;
+    this.mode = next;
+    this.#loadPb();
+    this.reset();
   }
 
   resize() {
@@ -42,7 +63,9 @@ export class RunnerGame {
       this.groundY = this.H - 46;
       if (this.player) {
         this.player.x = Math.min(86, Math.max(52, Math.round(this.W * 0.2)));
-        if (this.player.onGround || this.player.y >= prevGround - 1) {
+        if (this.mode === "glider") {
+          this.player.y = Math.min(this.player.y, this.groundY - 8);
+        } else if (this.player.onGround || this.player.y >= prevGround - 1) {
           this.player.y = this.groundY;
         } else {
           this.player.y = Math.min(this.player.y, this.groundY);
@@ -53,22 +76,25 @@ export class RunnerGame {
 
   reset() {
     this.groundY = (this.H || 320) - 46;
+    this.mode = this.mode ?? "glider";
+    const isGlider = this.mode === "glider";
     this.player = {
       x: Math.min(86, Math.max(52, Math.round((this.W || 480) * 0.2))),
-      y: this.groundY,
+      y: isGlider ? this.groundY - 8 : this.groundY,
       vy: 0,
       w: 34,
       h: 48,
-      onGround: true,
+      onGround: !isGlider,
       ducking: false,
       animTime: 0,
     };
     this.obstacles = [];
     this.coinItems = [];
     this.popups = [];
-    this.spawnTimer = 1.2;
+    this.spawnTimer = isGlider ? 1.0 : 1.2;
     this.spawnIndex = 0;
-    this.speed = 175;
+    this.lastGapCenter = (this.groundY - 8 + 98) / 2;
+    this.speed = isGlider ? 160 : 175;
     this.score = 0;
     this.coins = 0;
     this.hits = 0;
@@ -86,6 +112,7 @@ export class RunnerGame {
     this.peakInActive = 0;
     this.lastProgress = 0;
     this.currentProgress = 0;
+    this.targetProgress = 0;
     this.duckTimer = 0;
     this.groundOffset = 0;
     this.animClock = 0;
@@ -98,7 +125,7 @@ export class RunnerGame {
       this.pb = this.score;
       this.newPb = true;
       try {
-        globalThis.localStorage?.setItem?.(PB_KEY, String(this.pb));
+        globalThis.localStorage?.setItem?.(this.#pbKey(), String(this.pb));
       } catch {}
     }
   }
@@ -128,8 +155,16 @@ export class RunnerGame {
     this.last = performance.now(); // no catch-up jump after a long pause
   }
 
+  #gliderTargetY() {
+    const restY = this.groundY - 8;
+    const topY = 98;
+    const raw = Math.max(0, Math.min(1.05, this.targetProgress));
+    const level = this.concentric === "toRest" ? Math.max(0, 1 - raw) : raw;
+    return restY + (topY - restY) * level;
+  }
+
   triggerJump(rom) {
-    if (this.paused) return false;
+    if (this.paused || this.mode === "glider") return false;
     this.duckTimer = 0;
     this.player.ducking = false;
     const nearGround = this.player.vy > 0 && this.player.y >= this.groundY - 42;
@@ -148,6 +183,12 @@ export class RunnerGame {
   // ---- pipeline event handlers ----
   onPhase({ phase, progress = 0.85 }) {
     if (this.paused) return;
+    if (this.mode === "glider") {
+      if (typeof progress === "number") {
+        this.targetProgress = Math.max(0, Math.min(1.05, progress));
+      }
+      return;
+    }
     if (phase === "active") {
       this.peakInActive = Math.max(this.peakInActive, progress);
       if (this.concentric === "toTarget") {
@@ -163,6 +204,17 @@ export class RunnerGame {
   onRep({ rom }) {
     if (this.paused) return;
     this.lastJumpRom = rom;
+    if (this.mode === "glider") {
+      const bonus = Math.round(12 * Math.min(1.2, Math.max(0.4, rom)));
+      this.addScore(bonus);
+      this.popups.push({
+        x: this.player.x + 12,
+        y: Math.max(62, this.player.y - 44),
+        text: `+${bonus} REP`,
+        life: 0.75,
+      });
+      return;
+    }
     // Jump on rep completion only if we haven't already jumped during the upward movement
     if (!this.didLiftJump) {
       this.triggerJump(rom);
@@ -183,6 +235,11 @@ export class RunnerGame {
     const dp = p - this.lastProgress;
     this.lastProgress = p;
     this.currentProgress = p;
+
+    if (this.mode === "glider") {
+      this.targetProgress = Math.max(0, Math.min(1.05, progress));
+      return;
+    }
 
     if (this.concentric === "toTarget") {
       // Continuing higher during active phase boosts jump arc to reach high coins
@@ -246,7 +303,46 @@ export class RunnerGame {
     ctx.textAlign = "left";
   }
 
+  #spawnGliderWave() {
+    const spawnX = this.W + 28;
+    const trailId = this.spawnIndex;
+    const isHigh = this.spawnIndex % 2 === 0;
+    this.spawnIndex += 1;
+
+    const gapH = 130;
+    const gapTop = isHigh
+      ? Math.round(52 + Math.random() * 8)
+      : this.groundY - 6 - gapH;
+    const gapBottom = gapTop + gapH;
+    const gateCenter = (gapTop + gapBottom) / 2;
+    const prevCenter = this.lastGapCenter ?? gateCenter;
+    this.lastGapCenter = gateCenter;
+
+    const gateX = spawnX + 125;
+    this.obstacles.push({
+      type: "gate",
+      x: gateX,
+      y: 0,
+      w: 42,
+      h: this.groundY,
+      gapTop,
+      gapBottom,
+      hit: false,
+      cleared: false,
+    });
+
+    // 5-coin curve guiding the smooth raise/lower path into & through the gate
+    const coinXs = [spawnX, spawnX + 55, spawnX + 100, gateX + 21, gateX + 76];
+    const interpTs = [0.22, 0.56, 0.88, 1.0, 1.0];
+    for (let i = 0; i < coinXs.length; i++) {
+      const ease = 0.5 - 0.5 * Math.cos(Math.PI * interpTs[i]);
+      const cy = Math.round(prevCenter + (gateCenter - prevCenter) * ease);
+      this.coinItems.push({ x: coinXs[i], y: cy, r: 9, taken: false, trailId });
+    }
+  }
+
   #spawnWave() {
+    if (this.mode === "glider") return this.#spawnGliderWave();
     const spawnX = this.W + 28;
     const isHigh = this.spawnIndex % 2 === 1;
     this.spawnIndex += 1;
@@ -292,27 +388,37 @@ export class RunnerGame {
     this.animClock += dt;
     p.animTime += dt * 10;
 
-    p.vy += 1650 * dt;
-    p.y += p.vy * dt;
-    if (p.y >= this.groundY) {
-      p.y = this.groundY;
-      p.vy = 0;
-      p.onGround = true;
-      if (this.queuedJumpRom > 0) {
-        const q = this.queuedJumpRom;
-        this.queuedJumpRom = 0;
-        this.triggerJump(q);
+    if (this.mode === "glider") {
+      const targetY = this.#gliderTargetY();
+      const prevY = p.y;
+      const alpha = 1 - Math.exp(-12 * dt);
+      p.y += (targetY - p.y) * alpha;
+      p.vy = dt > 0 ? (p.y - prevY) / dt : 0;
+      p.onGround = false;
+      p.ducking = false;
+    } else {
+      p.vy += 1650 * dt;
+      p.y += p.vy * dt;
+      if (p.y >= this.groundY) {
+        p.y = this.groundY;
+        p.vy = 0;
+        p.onGround = true;
+        if (this.queuedJumpRom > 0) {
+          const q = this.queuedJumpRom;
+          this.queuedJumpRom = 0;
+          this.triggerJump(q);
+        }
       }
-    }
 
-    this.duckTimer = Math.max(0, this.duckTimer - dt);
-    const highAhead = this.obstacles.some(
-      (o) => o.type === "high" && !o.hit && o.x >= p.x - 10 && o.x <= p.x + 140
-    );
-    if (highAhead && this.concentric === "toTarget" && this.currentProgress <= 0.35 && p.onGround) {
-      this.duckTimer = Math.max(this.duckTimer, 0.25);
+      this.duckTimer = Math.max(0, this.duckTimer - dt);
+      const highAhead = this.obstacles.some(
+        (o) => o.type === "high" && !o.hit && o.x >= p.x - 10 && o.x <= p.x + 140
+      );
+      if (highAhead && this.concentric === "toTarget" && this.currentProgress <= 0.35 && p.onGround) {
+        this.duckTimer = Math.max(this.duckTimer, 0.25);
+      }
+      p.ducking = p.onGround && this.duckTimer > 0;
     }
-    p.ducking = p.onGround && this.duckTimer > 0;
 
     this.groundOffset = (this.groundOffset + this.speed * dt) % 48;
 
@@ -320,25 +426,33 @@ export class RunnerGame {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
         this.#spawnWave();
-        this.spawnTimer = 2.6 + Math.random() * 1.2;
+        this.spawnTimer =
+          this.mode === "glider"
+            ? 2.45 + Math.random() * 0.65
+            : 2.6 + Math.random() * 1.2;
       }
     }
 
-    for (const o of this.obstacles) o.x -= this.speed * dt;
-    this.obstacles = this.obstacles.filter((o) => {
-      if (o.x + o.w < 0) {
-        if (!o.hit) this.addScore(5);
-        return false;
-      }
-      return true;
-    });
-
-    const ph = p.ducking ? 26 : p.h;
-    const phw = (p.ducking ? 40 : p.w) / 2;
+    const ph = this.mode === "runner" && p.ducking ? 26 : p.h;
+    const phw = (this.mode === "runner" && p.ducking ? 40 : p.w) / 2;
     const pLeft = p.x - phw;
     const pRight = p.x + phw;
     const pTop = p.y - ph;
     const pBottom = p.y;
+
+    for (const o of this.obstacles) o.x -= this.speed * dt;
+    this.obstacles = this.obstacles.filter((o) => {
+      if (o.type === "gate" && !o.cleared && !o.hit && o.x + o.w < pLeft) {
+        o.cleared = true;
+        this.addScore(10);
+        this.popups.push({ x: o.x + o.w / 2, y: (o.gapTop + o.gapBottom) / 2 - 10, text: "+10", life: 0.7 });
+      }
+      if (o.x + o.w < 0) {
+        if (!o.hit && !o.cleared) this.addScore(5);
+        return false;
+      }
+      return true;
+    });
 
     for (const c of this.coinItems) {
       c.x -= this.speed * dt;
@@ -364,13 +478,23 @@ export class RunnerGame {
     this.popups = this.popups.filter((pop) => pop.life > 0);
 
     for (const o of this.obstacles) {
-      const oTop = o.y;
-      const oBottom = o.y + o.h;
-      const hit =
-        o.x + 4 < pRight - 5 &&
-        o.x + o.w - 4 > pLeft + 5 &&
-        oBottom - 4 > pTop + 4 &&
-        oTop + 4 < pBottom - 2;
+      let hit = false;
+      if (o.type === "gate") {
+        const inX = o.x + 5 < pRight - 4 && o.x + o.w - 5 > pLeft + 4;
+        if (inX) {
+          const hitsTopPipe = pTop + 4 < o.gapTop - 6;
+          const hitsBottomPipe = pBottom - 4 > o.gapBottom + 6;
+          hit = hitsTopPipe || hitsBottomPipe;
+        }
+      } else {
+        const oTop = o.y;
+        const oBottom = o.y + o.h;
+        hit =
+          o.x + 4 < pRight - 5 &&
+          o.x + o.w - 4 > pLeft + 5 &&
+          oBottom - 4 > pTop + 4 &&
+          oTop + 4 < pBottom - 2;
+      }
       if (hit && !o.hit) {
         o.hit = true;
         if (this.shieldActive) {
@@ -391,7 +515,7 @@ export class RunnerGame {
     const crest = "#a855f7"; // DurHack purple spikes
     const belly = "#7de6be";
 
-    if (p.ducking) {
+    if (this.mode === "runner" && p.ducking) {
       const base = p.y;
       const left = p.x - 22;
       // Tail
@@ -417,8 +541,31 @@ export class RunnerGame {
       return;
     }
 
+    const isGlider = this.mode === "glider";
+    if (isGlider) {
+      const tilt = Math.max(-0.28, Math.min(0.28, p.vy * 0.00075));
+      ctx.save?.();
+      ctx.translate?.(p.x, p.y - 24);
+      ctx.rotate?.(tilt);
+      ctx.translate?.(-p.x, -(p.y - 24));
+    }
+
     const base = p.y;
     const left = p.x - 16;
+
+    if (isGlider) {
+      // DurHack purple hang-glider wing + harness struts above Dino Dan
+      ctx.fillStyle = "#6b4c8c";
+      ctx.fillRect(left + 8, base - 52, 2, 12);
+      ctx.fillRect(left + 18, base - 52, 2, 10);
+      ctx.fillStyle = "#a855f7";
+      ctx.fillRect(left - 12, base - 58, 46, 7);
+      ctx.fillRect(left - 4, base - 63, 32, 6);
+      ctx.fillStyle = "#d8b4fe";
+      ctx.fillRect(left - 12, base - 58, 46, 2);
+      ctx.fillRect(left - 4, base - 63, 32, 2);
+    }
+
     // Tail
     ctx.fillStyle = body;
     ctx.fillRect(left - 8, base - 26, 10, 8);
@@ -454,11 +601,104 @@ export class RunnerGame {
       ctx.fillRect(left + 3, base - 10, 6, legSwap ? 10 : 6);
       ctx.fillRect(left + 12, base - 10, 6, legSwap ? 6 : 10);
     }
+
+    if (isGlider) ctx.restore?.();
+  }
+
+  #drawAltitudeGauge(ctx, p) {
+    const trackX = 14;
+    const trackW = 8;
+    const topCenterY = 74;
+    const botCenterY = this.groundY - 32;
+    const trackH = Math.max(40, botCenterY - topCenterY);
+    const curCenterY = Math.max(topCenterY, Math.min(botCenterY, p.y - 24));
+    const fillH = botCenterY - curCenterY;
+    const targetTickY = botCenterY - trackH * 0.65;
+
+    ctx.fillStyle = "rgba(15, 18, 24, 0.55)";
+    ctx.fillRect(6, topCenterY - 20, 28, trackH + 40);
+
+    // Track rail
+    ctx.fillStyle = "#263044";
+    ctx.fillRect(trackX, topCenterY, trackW, trackH);
+
+    // Filled altitude bar
+    ctx.fillStyle = curCenterY <= targetTickY ? "#a855f7" : "#4fd1a0";
+    ctx.fillRect(trackX, curCenterY, trackW, fillH);
+
+    // 65% target marker
+    ctx.fillStyle = "rgba(216, 180, 254, 0.7)";
+    ctx.fillRect(trackX - 3, targetTickY - 1, trackW + 6, 2);
+
+    // Knob indicator
+    ctx.fillStyle = "#e8ecf3";
+    ctx.beginPath();
+    ctx.arc(trackX + trackW / 2, curCenterY, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#9aa8bf";
+    ctx.font = "600 9px system-ui";
+    ctx.fillText("100%", 7, topCenterY - 8);
+    ctx.fillText("0%", 11, botCenterY + 13);
   }
 
   #drawObstaclesAndCoins(ctx) {
+    if (this.mode === "glider" && this.coinItems.length > 1) {
+      const trails = new Map();
+      for (const c of this.coinItems) {
+        if (c.trailId == null) continue;
+        let arr = trails.get(c.trailId);
+        if (!arr) {
+          arr = [];
+          trails.set(c.trailId, arr);
+        }
+        arr.push(c);
+      }
+      if (trails.size > 0) {
+        ctx.save?.();
+        ctx.strokeStyle = "rgba(242, 184, 75, 0.34)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash?.([5, 5]);
+        for (const pts of trails.values()) {
+          if (pts.length < 2) continue;
+          pts.sort((a, b) => a.x - b.x);
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i].x, pts[i].y);
+          }
+          ctx.stroke();
+        }
+        ctx.setLineDash?.([]);
+        ctx.restore?.();
+      }
+    }
+
     for (const o of this.obstacles) {
-      if (o.type === "high") {
+      if (o.type === "gate") {
+        const bodyCol = o.hit ? "#5a3a4a" : "#e85d75";
+        const capCol = o.hit ? "#6e4b6e" : "#a855f7";
+        const shineCol = "rgba(255, 255, 255, 0.16)";
+        if (o.gapTop > 0) {
+          ctx.fillStyle = bodyCol;
+          ctx.fillRect(o.x, 0, o.w, o.gapTop);
+          ctx.fillStyle = shineCol;
+          ctx.fillRect(o.x + 5, 0, 6, o.gapTop);
+          const capH = Math.min(12, o.gapTop);
+          ctx.fillStyle = capCol;
+          ctx.fillRect(o.x - 4, o.gapTop - capH, o.w + 8, capH);
+        }
+        const botH = this.groundY - o.gapBottom;
+        if (botH > 0) {
+          ctx.fillStyle = bodyCol;
+          ctx.fillRect(o.x, o.gapBottom, o.w, botH);
+          ctx.fillStyle = shineCol;
+          ctx.fillRect(o.x + 5, o.gapBottom, 6, botH);
+          const capH = Math.min(12, botH);
+          ctx.fillStyle = capCol;
+          ctx.fillRect(o.x - 4, o.gapBottom, o.w + 8, capH);
+        }
+      } else if (o.type === "high") {
         // Flapping DurHack pterodactyl
         const wingUp = Math.sin(this.animClock * 11 + o.x * 0.05) > 0;
         ctx.fillStyle = o.hit ? "#5a3a5a" : "#a855f7";
@@ -527,6 +767,14 @@ export class RunnerGame {
       ctx.fillRect(0, 0, W, groundY);
     }
 
+    // Subtle elevation guide lines in glider mode
+    if (this.mode === "glider") {
+      ctx.fillStyle = "rgba(148, 163, 184, 0.08)";
+      ctx.fillRect(36, 116, W - 36, 1);
+      ctx.fillRect(36, 174, W - 36, 1);
+      ctx.fillRect(36, 232, W - 36, 1);
+    }
+
     // Ground & scrolling track markers
     ctx.fillStyle = "#242b3d";
     ctx.fillRect(0, groundY, W, H - groundY);
@@ -539,13 +787,17 @@ export class RunnerGame {
 
     this.#drawObstaclesAndCoins(ctx);
 
-    // Shadow shrinks cleanly as Dino Dan jumps higher
+    // Shadow shrinks cleanly as Dino Dan rises higher
     ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
     const shadowScale = Math.max(0.4, 1 - (this.groundY - p.y) / 200);
-    const sw = (p.ducking ? 40 : 30) * shadowScale;
+    const sw = (this.mode === "runner" && p.ducking ? 40 : 30) * shadowScale;
     ctx.fillRect(p.x - sw / 2, groundY + 4, sw, 3);
 
     this.#drawDino(ctx, p);
+
+    if (this.mode === "glider") {
+      this.#drawAltitudeGauge(ctx, p);
+    }
 
     if (this.shieldActive) {
       const sh = p.ducking ? 26 : p.h;
