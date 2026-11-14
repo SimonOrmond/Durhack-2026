@@ -15,16 +15,19 @@ body {
   font: 15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 header {
+  position: sticky; top: 0; z-index: 60;
+  background: rgba(15, 18, 24, 0.94);
+  backdrop-filter: blur(8px);
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-  gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line);
+  gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line);
 }
 h1 { font-size: 18px; margin: 0; }
 .tag { font-size: 11px; background: var(--line); padding: 2px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
-.controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-.controls label { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+.controls label { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; }
 select, button {
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
-  padding: 6px 10px; border-radius: 6px; font: inherit;
+  padding: 5px 10px; border-radius: 6px; font: inherit; font-size: 13px;
 }
 button { cursor: pointer; }
 button:hover { border-color: var(--accent); }
@@ -35,36 +38,127 @@ main {
 }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
 
-.video-wrap { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 4/3; }
+/* ---- Patient sticky live dock + half-screen side-by-side layout ---- */
+main.patient-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 16px 28px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.live-dock {
+  position: sticky;
+  top: 49px;
+  z-index: 40;
+  background: var(--bg);
+  padding: 12px 0 10px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Keep Camera and Game side-by-side even on half-screen windows (down to 520px) */
+.live-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.05fr;
+  gap: 12px;
+  align-items: stretch;
+}
+@media (max-width: 520px) {
+  .live-grid { grid-template-columns: 1fr; }
+}
+
+.camera-pane, .game-pane {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.video-wrap {
+  position: relative;
+  background: #000;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  aspect-ratio: 4/3;
+  max-height: 36vh;
+  width: 100%;
+}
 video, #overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .mirror video, .mirror #overlay { transform: scaleX(-1); }
 .status {
-  position: absolute; left: 12px; bottom: 12px; background: rgba(0,0,0,.6);
-  padding: 6px 10px; border-radius: 6px; font-size: 13px;
+  position: absolute; left: 10px; bottom: 10px; background: rgba(0,0,0,.65);
+  padding: 5px 9px; border-radius: 6px; font-size: 12px;
 }
-.instructions { margin-top: 10px; color: var(--muted); font-size: 14px; }
+
+#game {
+  width: 100%;
+  height: auto;
+  max-height: 32vh;
+  object-fit: contain;
+  background: #1b2230;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+.game-help { font-size: 12px; color: var(--muted); line-height: 1.35; }
+
+.hud-strip {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(240px, 1.1fr);
+  gap: 12px;
+  align-items: center;
+}
+@media (max-width: 720px) {
+  .hud-strip { grid-template-columns: 1fr; gap: 8px; }
+}
 
 .panel { display: flex; flex-direction: column; gap: 14px; }
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
-.stat .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.stat .value { font-size: 34px; font-weight: 700; line-height: 1.1; }
-.stat .value.small { font-size: 22px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.stat .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.stat .value { font-size: 24px; font-weight: 700; line-height: 1.15; }
+.stat .value.small { font-size: 18px; }
 
-.gauge-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-.gauge-track { position: relative; height: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.gauge-and-cue {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: 10px;
+  align-items: end;
+}
+@media (max-width: 520px) {
+  .gauge-and-cue { grid-template-columns: 1fr; }
+}
+
+.gauge-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.gauge-track { position: relative; height: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .gauge-fill { height: 100%; width: 0%; background: var(--accent); transition: width 60ms linear; }
 .gauge-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--muted); opacity: .6; }
 
 .cue {
-  min-height: 40px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line);
-  background: var(--panel); font-weight: 600;
+  min-height: 34px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); font-weight: 600; font-size: 13px;
+  display: flex; align-items: center;
 }
 .cue.good { border-color: var(--accent); color: var(--accent); }
 .cue.warn { border-color: var(--warn); color: var(--warn); }
 
-#game { width: 100%; height: auto; background: #1b2230; border-radius: 10px; border: 1px solid var(--line); }
-.game-help { font-size: 13px; color: var(--muted); }
+.lower-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.instructions-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.instructions { margin: 0; color: var(--text); font-size: 14px; }
 
 .debug { background: #0a0d12; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; margin: 0; white-space: pre-wrap; }
 .hidden { display: none; }
@@ -77,7 +171,7 @@ button:disabled { opacity: .6; cursor: default; }
 .small { font-size: 12px; }
 h2 { font-size: 17px; margin: 0 0 10px; }
 h3 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.user-chip { color: var(--muted); padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
+.user-chip { color: var(--muted); padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
 .form-error { color: var(--bad); font-size: 13px; margin-top: 6px; }
 input[type="text"], input[type="password"], input[type="number"], input:not([type]) {
   background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; width: 100%;
@@ -96,14 +190,15 @@ code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size:
 .accounts th, .accounts td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
 
 /* ---- physio dashboard ---- */
-.physio-layout { grid-template-columns: minmax(220px, 300px) 1fr; }
+.physio-layout { grid-template-columns: minmax(220px, 280px) 1fr; align-items: start; }
+.physio-layout > .panel:first-child { position: sticky; top: 65px; }
 .patient-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .patient-list li { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; display: grid; gap: 2px; background: var(--panel); }
 .patient-list li span { font-size: 12px; }
 .patient-list li:hover { border-color: var(--accent); }
 .patient-list li.active { border-color: var(--accent); background: rgba(79,209,160,.08); }
 .detail-head { display: flex; justify-content: space-between; align-items: start; }
-.prescribe-form { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.prescribe-form { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
 .prescribe-form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
 .prescribe-form .wide { grid-column: 1 / -1; }
 .prescribe-form summary { cursor: pointer; font-size: 13px; color: var(--muted); }
@@ -121,14 +216,18 @@ table.sessions th, table.sessions td { text-align: left; padding: 6px 8px; borde
 table.sessions th { color: var(--muted); font-weight: 600; font-size: 12px; }
 
 /* ---- patient plan ---- */
-.plan { display: grid; gap: 6px; }
+.plan { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
 .plan-card { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; font-size: 14px; }
 .plan-card:hover { border-color: var(--accent); }
 .plan-card.active { border-color: var(--accent); background: rgba(79,209,160,.08); }
 .plan-card.done { opacity: .6; }
 .set-progress { display: flex; justify-content: space-between; align-items: center; font-size: 14px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .set-progress b { color: var(--accent); }
-@media (max-width: 900px) { .physio-layout { grid-template-columns: 1fr; } .prescribe-form { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 900px) {
+  .physio-layout { grid-template-columns: 1fr; }
+  .physio-layout > .panel:first-child { position: static; }
+  .prescribe-form { grid-template-columns: 1fr 1fr; }
+}
 
 /* ---- analysis ---- */
 .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }

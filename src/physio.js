@@ -15,6 +15,7 @@ let selected = null;
 let sessionsCache = [];
 let progressCache = [];
 let selectedSessionId = null;
+let selectedSessionDoc = null;
 let metric = "avgRom";
 
 // ---- formatting ----------------------------------------------------------------
@@ -227,19 +228,8 @@ function renderSessions() {
   }
 }
 
-// ---- one session, rep by rep -------------------------------------------------
-async function showSession(id) {
-  selectedSessionId = id;
-  for (const tr of $("session-table").querySelectorAll("tbody tr")) tr.classList.toggle("active", tr.dataset.id === id);
-  const s = await Api.session(id);
-  const box = $("session-detail");
-  box.hidden = false;
-  const sm = s.summary;
-  $("sd-title").textContent = `${s.exerciseName} · ${when(s.startedAt)}`;
-  $("sd-sub").textContent =
-    `${sm.repCount} reps · avg ROM ${pct(sm.avgRom)} · ${secs(sm.avgDurationMs)} per rep` +
-    (sm.tempoRepsPerMin != null ? ` · ${sm.tempoRepsPerMin} reps/min` : "") +
-    (sm.avgRestMs != null ? ` · ${secs(sm.avgRestMs)} rest between reps` : "");
+function renderSessionCharts(s) {
+  if (!s || $("session-detail").hidden) return;
   const labels = s.reps.map((r) => `${r.n}`);
   barChart($("rom-chart"), { values: s.reps.map((r) => r.rom), labels, fmt: pct, color: SERIES.blue, refLine: 1 });
   stackedBars($("tempo-chart"), {
@@ -251,6 +241,23 @@ async function showSession(id) {
       { name: "Eccentric", color: SERIES.orange, values: s.reps.map((r) => r.eccentricMs || 0) },
     ],
   });
+}
+
+// ---- one session, rep by rep -------------------------------------------------
+async function showSession(id) {
+  selectedSessionId = id;
+  for (const tr of $("session-table").querySelectorAll("tbody tr")) tr.classList.toggle("active", tr.dataset.id === id);
+  const s = await Api.session(id);
+  selectedSessionDoc = s;
+  const box = $("session-detail");
+  box.hidden = false;
+  const sm = s.summary;
+  $("sd-title").textContent = `${s.exerciseName} · ${when(s.startedAt)}`;
+  $("sd-sub").textContent =
+    `${sm.repCount} reps · avg ROM ${pct(sm.avgRom)} · ${secs(sm.avgDurationMs)} per rep` +
+    (sm.tempoRepsPerMin != null ? ` · ${sm.tempoRepsPerMin} reps/min` : "") +
+    (sm.avgRestMs != null ? ` · ${secs(sm.avgRestMs)} rest between reps` : "");
+  renderSessionCharts(s);
   // table view: exact numbers, and the accessible alternative to the charts
   const tb = $("rep-table").querySelector("tbody");
   tb.innerHTML = "";
@@ -274,6 +281,7 @@ $("rep-table-toggle").addEventListener("click", () => {
 $("sd-close").addEventListener("click", () => {
   $("session-detail").hidden = true;
   selectedSessionId = null;
+  selectedSessionDoc = null;
   renderSessions();
 });
 
@@ -281,7 +289,11 @@ $("sd-close").addEventListener("click", () => {
 setInterval(() => {
   if (selected) loadAnalysis().catch(() => {});
 }, 10000);
-window.addEventListener("resize", () => selected && renderProgress());
+window.addEventListener("resize", () => {
+  if (!selected) return;
+  renderProgress();
+  renderSessionCharts(selectedSessionDoc);
+});
 
 Promise.all([loadExercises(), loadPatients()]).catch((err) => {
   $("patient-list").innerHTML = `<li class="form-error">${esc(err.message)}</li>`;

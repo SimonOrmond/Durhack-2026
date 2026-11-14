@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="src/styles.css" />
 </head>
 <body>
-  <header>
+  <header class="sticky-header">
     <h1>Your exercises <span class="tag">patient</span></h1>
     <div class="controls">
       <span class="user-chip" id="user-chip"></span>
@@ -24,19 +24,60 @@
     </div>
   </header>
 
-  <main>
-    <section class="stage">
-      <div class="video-wrap">
-        <video id="video" playsinline muted></video>
-        <canvas id="overlay"></canvas>
-        <div id="status" class="status">Loading scripts…</div>
-      </div>
-      <div class="instructions" id="instructions"></div>
-    </section>
+  <main class="patient-main">
+    <!-- Sticky live dock: keeps Camera, Game, and live HUD side-by-side on half-screens and pinned while scrolling -->
+    <section class="live-dock">
+      <div class="live-grid">
+        <div class="camera-pane">
+          <div class="video-wrap">
+            <video id="video" playsinline muted></video>
+            <canvas id="overlay"></canvas>
+            <div id="status" class="status">Loading scripts…</div>
+          </div>
+        </div>
 
-    <section class="panel">
-      <h3 style="margin-top:0">Today's plan <span class="muted small" id="plan-hint">from your physio</span></h3>
-      <div id="plan" class="plan"><div class="muted small">Loading…</div></div>
+        <div class="game-pane">
+          <canvas id="game" width="640" height="300"></canvas>
+          <div class="game-help">
+            <b>Game:</b> each upward lift or stand-up makes the runner jump. Bigger range of motion = higher jump.
+            Holding the target position charges the shield.
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-strip">
+        <div class="stats">
+          <div class="stat">
+            <div class="label">Reps</div>
+            <div class="value" id="reps">0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Phase</div>
+            <div class="value small" id="phase">—</div>
+          </div>
+          <div class="stat">
+            <div class="label">Angle</div>
+            <div class="value small"><span id="angle">—</span>°</div>
+          </div>
+          <div class="stat">
+            <div class="label">Last ROM</div>
+            <div class="value small" id="rom">—</div>
+          </div>
+        </div>
+
+        <div class="gauge-and-cue">
+          <div class="gauge">
+            <div class="gauge-label"><span>Rest</span><span>Target</span></div>
+            <div class="gauge-track">
+              <div class="gauge-fill" id="gauge"></div>
+              <div class="gauge-mark" style="left:22%"></div>
+              <div class="gauge-mark" style="left:75%"></div>
+            </div>
+          </div>
+          <div class="cue" id="cue">&nbsp;</div>
+        </div>
+      </div>
+
       <div class="set-progress" id="set-progress" hidden>
         <span><b id="sp-exercise"></b> · Set <span id="sp-set">1</span>/<span id="sp-sets">3</span> · Rep <span id="sp-rep">0</span>/<span id="sp-reps">10</span>
           <span class="sp-state" id="sp-state">Go</span> <b class="sp-rest" id="sp-rest"></b></span>
@@ -45,41 +86,17 @@
           <button class="small-btn" id="finish">Finish &amp; save</button>
         </span>
       </div>
+    </section>
 
-      <div class="stats">
-        <div class="stat">
-          <div class="label">Reps</div>
-          <div class="value" id="reps">0</div>
-        </div>
-        <div class="stat">
-          <div class="label">Phase</div>
-          <div class="value small" id="phase">—</div>
-        </div>
-        <div class="stat">
-          <div class="label">Angle</div>
-          <div class="value small"><span id="angle">—</span>°</div>
-        </div>
-        <div class="stat">
-          <div class="label">Last ROM</div>
-          <div class="value small" id="rom">—</div>
-        </div>
+    <!-- Scrollable lower content: instructions, Today's plan, debug readout -->
+    <section class="lower-content">
+      <div class="instructions-card">
+        <div class="instructions" id="instructions"></div>
       </div>
 
-      <div class="gauge">
-        <div class="gauge-label"><span>Rest</span><span>Target</span></div>
-        <div class="gauge-track">
-          <div class="gauge-fill" id="gauge"></div>
-          <div class="gauge-mark" style="left:20%"></div>
-          <div class="gauge-mark" style="left:80%"></div>
-        </div>
-      </div>
-
-      <div class="cue" id="cue">&nbsp;</div>
-
-      <canvas id="game" width="640" height="300"></canvas>
-      <div class="game-help">
-        <b>Game:</b> each completed rep makes the runner jump. Bigger range of motion = higher jump.
-        Holding the target position charges the shield.
+      <div class="plan-section">
+        <h3 style="margin-top:0">Today's plan <span class="muted small" id="plan-hint">from your physio</span></h3>
+        <div id="plan" class="plan"><div class="muted small">Loading…</div></div>
       </div>
 
       <pre id="debug-out" class="debug hidden"></pre>
