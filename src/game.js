@@ -168,7 +168,14 @@ export class RunnerGame {
     ctx.fillRect(0, 0, W, H);
     ctx.textAlign = "center";
 
-    if (this.pauseReason === "resting") {
+    if (this.pauseReason === "waiting") {
+      ctx.fillStyle = "#e8ecf3";
+      ctx.font = "bold 26px system-ui";
+      ctx.fillText("READY TO START", W / 2, H / 2 - 10);
+      ctx.font = "14px system-ui";
+      ctx.fillStyle = "#4fd1a0";
+      ctx.fillText("Click 'Start exercise' to begin", W / 2, H / 2 + 20);
+    } else if (this.pauseReason === "resting") {
       ctx.fillStyle = "#4fd1a0";
       ctx.font = "bold 28px system-ui";
       ctx.fillText("REST PERIOD", W / 2, H / 2 - 10);

@@ -31,6 +31,23 @@ select, button {
 }
 button { cursor: pointer; }
 button:hover { border-color: var(--accent); }
+button.btn-start, #start {
+  background: var(--accent);
+  color: #0f1218;
+  font-weight: 700;
+  border-color: var(--accent);
+  padding: 5px 12px;
+}
+button.btn-start:hover:not(:disabled), #start:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 0 10px rgba(79, 209, 160, 0.4);
+}
+button.btn-start:disabled, #start:disabled {
+  background: var(--panel);
+  color: var(--muted);
+  border-color: var(--line);
+  opacity: .7;
+}
 
 main {
   display: grid; grid-template-columns: minmax(320px, 1.3fr) minmax(320px, 1fr);

@@ -105,6 +105,26 @@ async function loadPlan() {
     el.appendChild(card);
   }
 
+  // Pre-select first prescription if none active yet
+  if (plan.length && !activePrescription) {
+    const firstPr = plan[0];
+    activePrescription = firstPr;
+    exerciseKey = firstPr.exerciseKey;
+    exercise = { ...EXERCISES[exerciseKey], ...(firstPr.angleOverrides ?? {}) };
+    exerciseSelect.value = exerciseKey;
+    $("instructions").textContent = exercise.instructions + (firstPr.notes ? ` Physio note: ${firstPr.notes}` : "");
+    game.setConcentric(exercise.concentric);
+    game.setHoldTargetMs((firstPr.holdSeconds || 2) * 1000);
+    recorder.start(exerciseKey, firstPr);
+    $("set-progress").hidden = false;
+    $("sp-exercise").textContent = firstPr.exerciseName;
+    $("sp-sets").textContent = firstPr.sets;
+    $("sp-reps").textContent = firstPr.reps;
+    $("finish").hidden = false;
+    for (const c of el.children) c.classList.toggle("active", c.dataset?.id === firstPr._id);
+    if ($("start")) $("start").textContent = `Start ${firstPr.exerciseName}`;
+  }
+
   renderPatientTimeline(plan, sessions);
 }
 
@@ -317,7 +337,15 @@ async function applyPrescription(pr) {
   $("sp-sets").textContent = pr.sets;
   $("sp-reps").textContent = pr.reps;
   $("finish").hidden = false;
-  startSet();
+  if ($("start")) $("start").textContent = loop ? "Exercise in progress" : `Start ${pr.exerciseName}`;
+
+  if (loop) {
+    startSet();
+  } else {
+    setState = "ready";
+    game.pause("waiting");
+    setStatus(`Selected: ${pr.exerciseName}. Click Start exercise to begin.`);
+  }
 }
 
 function updateSetProgress() {
@@ -337,13 +365,18 @@ function updateSetProgress() {
 function startSet() {
   const pr = activePrescription;
   setState = "working";
-  game.resume();
+  if (loop && !loop.paused) {
+    game.resume();
+  } else {
+    game.pause("waiting");
+  }
   counter.reset();
   smoother.reset();
   $("reps").textContent = "0";
   updateSetProgress();
   flashCue(`Set ${recorder.setsCompleted + 1} of ${pr.sets}: ${pr.reps} reps. Go!`, "good");
   cueTimer = performance.now() + 2500;
+  if ($("start")) $("start").textContent = "Exercise in progress";
 }
 
 /** Called after each counted rep while a prescription is being worked: handles set boundaries. */
@@ -800,41 +833,67 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// ---- Start ----
+// ---- Start Exercise & Camera ----
 function setStatus(text, kind = "") {
   const el = $("status");
   el.textContent = text;
   el.className = `status ${kind}`;
 }
 
-$("start").addEventListener("click", async () => {
+async function startExercise() {
   const btn = $("start");
+  if (loop && !loop.paused) {
+    flashCue("Exercise is already in progress!", "good");
+    return;
+  }
   btn.disabled = true;
-  btn.textContent = "Starting…";
+  btn.textContent = "Starting camera…";
   try {
-    setStatus("Requesting camera… (allow it in the Chrome prompt)");
-    await startCamera(video);
-    const { landmarker, mp } = await createPoseTracker({ onStatus: setStatus });
-    drawer = new mp.DrawingUtils(octx);
-    connections = mp.PoseLandmarker.POSE_CONNECTIONS;
-    loop = runDetectionLoop(landmarker, video, onFrame);
-    btn.textContent = "Running";
-    $("pause").disabled = false;
+    if (!loop) {
+      setStatus("Starting camera… (allow camera access in browser prompt)");
+      await startCamera(video);
+      const { landmarker, mp } = await createPoseTracker({ onStatus: setStatus });
+      drawer = new mp.DrawingUtils(octx);
+      connections = mp.PoseLandmarker.POSE_CONNECTIONS;
+      loop = runDetectionLoop(landmarker, video, onFrame);
+      $("pause").disabled = false;
+    } else if (loop.paused) {
+      setPaused(false);
+    }
+    btn.textContent = "Exercise in progress";
+    btn.disabled = false;
+
+    // Start exercise and game now that camera has started
+    if (activePrescription) {
+      if (setState !== "working" && setState !== "resting") {
+        startSet();
+      } else {
+        game.resume();
+      }
+    } else {
+      setState = "free";
+      game.resume();
+      flashCue("Camera active! Do your reps in front of the screen.", "good");
+    }
+    setStatus("Exercise active · follow the movement on screen");
   } catch (err) {
     console.error(err);
     setStatus(`Error: ${err.message}`, "error");
     flashCue(err.message, "warn");
     cueTimer = performance.now() + 15000;
     btn.disabled = false;
-    btn.textContent = "Retry camera";
+    btn.textContent = "Retry start";
   }
-});
+}
 
-// Module is loaded: enable the button (it starts disabled in the HTML so a click before
-// scripts are ready can't silently do nothing). Warm the MediaPipe download in the background.
+$("start").addEventListener("click", startExercise);
+
+// Module is loaded: enable the Start exercise button.
 $("start").disabled = false;
-$("start").textContent = "Start camera";
-setStatus("Ready. Click Start camera.");
+if (!$("start").textContent.startsWith("Start ")) {
+  $("start").textContent = "Start exercise";
+}
+setStatus("Ready. Choose an exercise or click Start exercise.");
 loadMediaPipe(() => {}).catch(() => {});
 
 // Debug handle: lets tests and teammates poke the pipeline from the console, e.g.
