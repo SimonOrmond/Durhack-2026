@@ -16,6 +16,11 @@
       <a href="#progress" data-view="progress">Progress</a>
     </nav>
     <div class="controls">
+      <!-- Start/Pause live in the sticky header so they stay reachable while scrolling (Exercise tab only) -->
+      <span class="header-exercise-actions">
+        <button id="start" class="btn-start" disabled>Loading scripts…</button>
+        <button id="pause" disabled title="Space or P">Pause</button>
+      </span>
       <span class="user-chip" id="user-chip"></span>
       <button id="logout">Sign out</button>
     </div>
@@ -63,8 +68,6 @@
         </label>
         <label><input type="checkbox" id="mirror" checked /> Mirror</label>
         <label><input type="checkbox" id="debug" /> Debug</label>
-        <button id="start" class="btn-start" disabled>Loading scripts…</button>
-        <button id="pause" disabled title="Space or P">Pause</button>
         <button id="reset">Reset</button>
       </div>
 

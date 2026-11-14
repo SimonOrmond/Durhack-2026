@@ -444,3 +444,7 @@ section.view { display: flex; flex-direction: column; gap: 14px; padding-top: 14
 .rx-dot.done { background: var(--accent); border-color: var(--accent); color: #0f1218; }
 .rx-dot.partial { border-color: var(--warn); color: var(--warn); }
 .rx-dot.today { border-color: var(--text); color: var(--text); }
+
+/* Start/Pause in the sticky header: only on the Exercise tab */
+.header-exercise-actions { display: none; gap: 8px; align-items: center; }
+body[data-view="exercise"] .header-exercise-actions { display: flex; }
