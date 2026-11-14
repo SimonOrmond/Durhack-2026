@@ -54,6 +54,21 @@ function fillAngleDefaults() {
   $("p-rest").value = ex.restAngle;
   $("p-target").value = ex.targetAngle;
   $("p-defaults").textContent = `Defaults: rest ${ex.restAngle}°, target ${ex.targetAngle}°. Lower the target for a patient with limited range.`;
+
+  // Auto-suggest timeline duration and phase based on stage metadata
+  if (ex.name.includes("Stage 1")) {
+    $("p-weeks").value = 2;
+    $("p-phase").value = "Stage 1 (Weeks 0–2: Max Protection)";
+  } else if (ex.name.includes("Stage 2")) {
+    $("p-weeks").value = 4;
+    $("p-phase").value = "Stage 2 (Weeks 3–6: AAROM)";
+  } else if (ex.name.includes("Stage 3")) {
+    $("p-weeks").value = 6;
+    $("p-phase").value = "Stage 3 (Weeks 6–12: Active & Strengthening)";
+  } else {
+    $("p-weeks").value = 4;
+    $("p-phase").value = `${ex.group || "Rehab"} Phase (4 weeks)`;
+  }
 }
 
 // ---- patients ---------------------------------------------------------------
@@ -83,7 +98,7 @@ async function selectPatient(p) {
   await Promise.all([loadPrescriptions(), loadAnalysis()]);
 }
 
-// ---- prescriptions ----------------------------------------------------------
+// ---- prescriptions & timeline ----------------------------------------------
 async function loadPrescriptions() {
   const list = await Api.prescriptions(selected._id);
   const ul = $("prescription-list");
@@ -92,10 +107,29 @@ async function loadPrescriptions() {
     const li = document.createElement("li");
     const d = (v) => (v == null ? "default" : `${v}°`);
     const ov = pr.angleOverrides ? ` · angles ${d(pr.angleOverrides.restAngle)} → ${d(pr.angleOverrides.targetAngle)}` : "";
+    const weeks = pr.durationWeeks ?? 4;
+    const freq = pr.daysPerWeek ?? 3;
+    const phase = pr.timelinePhase ? `<span class="timeline-tag">${esc(pr.timelinePhase)}</span>` : "";
+
+    const start = pr.startDate ? new Date(pr.startDate) : new Date(pr.createdAt || Date.now());
+    const end = pr.endDate ? new Date(pr.endDate) : new Date(start.getTime() + weeks * 7 * 86400e3);
+    const msSinceStart = Date.now() - start.getTime();
+    const currentWeek = Math.min(weeks, Math.max(1, Math.ceil(msSinceStart / (7 * 86400e3))));
+    const dateRangeStr = `${start.toLocaleDateString([], { day: "numeric", month: "short" })} – ${end.toLocaleDateString([], { day: "numeric", month: "short" })}`;
+
     li.innerHTML = `
-      <div>
-        <b>${esc(pr.exerciseName)}</b>
-        <div class="muted">${pr.sets} × ${pr.reps}${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${pr.sets > 1 ? ` · rest ${pr.restSeconds ?? 60}s` : ""}${ov}</div>
+      <div style="flex: 1">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <b>${esc(pr.exerciseName)}</b>
+          ${phase}
+          <span class="timeline-badge">Week ${currentWeek} of ${weeks} · ${freq}d/wk</span>
+        </div>
+        <div class="muted" style="margin-top:2px">
+          ${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${pr.sets > 1 ? ` · rest ${pr.restSeconds ?? 60}s` : ""}${ov}
+        </div>
+        <div class="muted small" style="margin-top:3px;font-size:11px">
+          📅 Timeline: ${dateRangeStr} (${weeks} weeks total)
+        </div>
         ${pr.notes ? `<div class="note">“${esc(pr.notes)}”</div>` : ""}
       </div>
       <button class="small-btn" data-stop="${pr._id}">Stop</button>`;
@@ -122,6 +156,9 @@ $("prescribe-form").addEventListener("submit", async (e) => {
       reps: $("p-reps").value,
       holdSeconds: $("p-hold").value,
       restSeconds: $("p-rest-secs").value,
+      durationWeeks: $("p-weeks").value,
+      daysPerWeek: $("p-frequency").value,
+      timelinePhase: $("p-phase").value,
       angleOverrides: { restAngle: $("p-rest").value, targetAngle: $("p-target").value },
       notes: $("p-notes").value,
     });

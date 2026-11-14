@@ -10,12 +10,15 @@ export class RunnerGame {
     this.W = canvas.width;
     this.H = canvas.height;
     this.groundY = this.H - 50;
+    this.hasStarted = false;
     this.reset();
+    this.paused = true;
+    this.pauseReason = "waiting";
     this.last = performance.now();
     requestAnimationFrame((t) => this.loop(t));
   }
 
-  reset() {
+  reset(keepWaiting = false) {
     this.player = { x: 90, y: this.groundY, vy: 0, w: 28, h: 48, onGround: true, crouch: 0 };
     this.obstacles = [];
     this.spawnTimer = 0;
@@ -26,12 +29,24 @@ export class RunnerGame {
     this.shieldActive = false;
     this.flash = 0;
     this.lastJumpRom = 0;
-    this.paused = false;
     this.resting = false;
     this.holdTargetMs = 2000;
     this.concentric = this.concentric ?? "toTarget"; // "toTarget" (curl/raise) | "toRest" (squat)
     this.jumpedInActive = false;
     this.peakInActive = 0;
+    if (keepWaiting || !this.hasStarted) {
+      this.paused = true;
+      this.pauseReason = "waiting";
+    } else {
+      this.paused = false;
+      this.pauseReason = null;
+    }
+    this.restText = "";
+  }
+
+  start() {
+    this.hasStarted = true;
+    this.resume();
   }
 
   setConcentric(dir) {
@@ -48,11 +63,21 @@ export class RunnerGame {
     this.holdTargetMs = Number.isFinite(n) && n > 0 ? Math.max(1000, n) : 2000;
   }
 
-  pause() {
+  pause(reason = "paused") {
     this.paused = true;
+    this.pauseReason = reason;
+    if (reason === "resting" || reason === "done" || reason === "waiting") {
+      this.player.y = this.groundY;
+      this.player.vy = 0;
+      this.player.onGround = true;
+      this.player.crouch = 0;
+      this.flash = 0;
+    }
   }
   resume() {
+    this.hasStarted = true;
     this.paused = false;
+    this.pauseReason = null;
     this.last = performance.now(); // no catch-up jump after a long pause
   }
 
@@ -139,15 +164,39 @@ export class RunnerGame {
 
   drawPausedOverlay() {
     const { ctx, W, H } = this;
-    ctx.fillStyle = "rgba(15, 18, 24, 0.6)";
+    ctx.fillStyle = "rgba(15, 18, 24, 0.68)";
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "#e8ecf3";
-    ctx.font = "bold 32px system-ui";
     ctx.textAlign = "center";
-    ctx.fillText("PAUSED", W / 2, H / 2);
-    ctx.font = "14px system-ui";
-    ctx.fillStyle = "#8f9bb0";
-    ctx.fillText("Press Space or click Resume", W / 2, H / 2 + 28);
+
+    if (this.pauseReason === "waiting") {
+      ctx.fillStyle = "#e8ecf3";
+      ctx.font = "bold 26px system-ui";
+      ctx.fillText("READY TO START", W / 2, H / 2 - 10);
+      ctx.font = "14px system-ui";
+      ctx.fillStyle = "#4fd1a0";
+      ctx.fillText("Click 'Start exercise' to begin", W / 2, H / 2 + 20);
+    } else if (this.pauseReason === "resting") {
+      ctx.fillStyle = "#4fd1a0";
+      ctx.font = "bold 28px system-ui";
+      ctx.fillText("REST PERIOD", W / 2, H / 2 - 10);
+      ctx.font = "15px system-ui";
+      ctx.fillStyle = "#e8ecf3";
+      ctx.fillText(this.restText || "Rest between sets · relax your arm", W / 2, H / 2 + 20);
+    } else if (this.pauseReason === "done") {
+      ctx.fillStyle = "#7fb3ff";
+      ctx.font = "bold 30px system-ui";
+      ctx.fillText("SETS COMPLETED!", W / 2, H / 2 - 12);
+      ctx.font = "15px system-ui";
+      ctx.fillStyle = "#e8ecf3";
+      ctx.fillText(`All sets done ✓  Final Score: ${this.score}`, W / 2, H / 2 + 18);
+    } else {
+      ctx.fillStyle = "#e8ecf3";
+      ctx.font = "bold 32px system-ui";
+      ctx.fillText("PAUSED", W / 2, H / 2);
+      ctx.font = "14px system-ui";
+      ctx.fillStyle = "#8f9bb0";
+      ctx.fillText("Press Space or click Resume", W / 2, H / 2 + 28);
+    }
     ctx.textAlign = "left";
   }
 

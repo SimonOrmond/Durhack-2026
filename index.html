@@ -17,7 +17,7 @@
       </label>
       <label><input type="checkbox" id="mirror" checked /> Mirror</label>
       <label><input type="checkbox" id="debug" /> Debug</label>
-      <button id="start" disabled>Loading scripts…</button>
+      <button id="start" class="btn-start" disabled>Loading scripts…</button>
       <button id="pause" disabled title="Space or P">Pause</button>
       <button id="reset">Reset</button>
       <button id="logout">Sign out</button>
@@ -97,6 +97,51 @@
       <div class="plan-section">
         <h3 style="margin-top:0">Today's plan <span class="muted small" id="plan-hint">from your physio</span></h3>
         <div id="plan" class="plan"><div class="muted small">Loading…</div></div>
+      </div>
+
+      <!-- Exercise Timeline & Completed Days Activity -->
+      <div class="timeline-section" id="timeline-section">
+        <div class="timeline-head">
+          <div>
+            <h3 style="margin:0">Exercise Timeline &amp; Completed Days</h3>
+            <div class="muted small">Your prescribed programme timeline and workout days completed</div>
+          </div>
+          <div id="timeline-stats-badge"></div>
+        </div>
+
+        <!-- Weekly Completed Days Tracker -->
+        <div class="calendar-card">
+          <div class="calendar-head">
+            <div>
+              <b>Days Completed This Week</b>
+              <div class="muted small" id="calendar-week-label">Loading…</div>
+            </div>
+            <div class="week-summary" id="week-summary"></div>
+          </div>
+          <div class="week-grid" id="week-grid"></div>
+        </div>
+
+        <!-- Programme Timeline of Prescribed Exercises -->
+        <div class="programme-timeline-card">
+          <div class="timeline-card-head">
+            <b>Prescribed Programme Timeline</b>
+            <span class="muted small">Timeline progression</span>
+          </div>
+          <div class="timeline-cards-grid" id="timeline-cards-grid">
+            <div class="muted small">Loading timeline…</div>
+          </div>
+        </div>
+
+        <!-- History of Completed Days -->
+        <div class="completed-history-card">
+          <div class="timeline-card-head">
+            <b>Workout Days Log</b>
+            <span class="muted small" id="history-count"></span>
+          </div>
+          <ul class="completed-days-list" id="completed-days-list">
+            <li class="muted small">No workout days completed yet.</li>
+          </ul>
+        </div>
       </div>
 
       <pre id="debug-out" class="debug hidden"></pre>
