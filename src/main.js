@@ -130,6 +130,7 @@ function updateSetProgress() {
 function startSet() {
   const pr = activePrescription;
   setState = "working";
+  game.resume();
   counter.reset();
   smoother.reset();
   $("reps").textContent = "0";
@@ -160,6 +161,8 @@ function onPrescribedRep(tempo = "") {
 function startRest() {
   const pr = activePrescription;
   setState = "resting";
+  game.pause("resting");
+  game.restText = `Rest ${(pr.restSeconds ?? DEFAULT_REST_S)}s · relax your arm`;
   restEndsAt = performance.now() + (pr.restSeconds ?? DEFAULT_REST_S) * 1000;
   counter.reset();
   flashCue(`Set ${recorder.setsCompleted} of ${pr.sets} done! Rest.`, "good");
@@ -174,6 +177,7 @@ function tickRest() {
   if (loop?.paused) return; // countdown frozen while paused
   const left = Math.max(0, restEndsAt - performance.now());
   $("sp-rest").textContent = `Rest ${fmtClock(left)}`;
+  game.restText = `Rest ${fmtClock(left)} · relax your arm`;
   if (left <= 0) {
     stopRestTimer();
     startSet();
@@ -199,6 +203,7 @@ $("skip-rest").addEventListener("click", () => {
 async function completeSession() {
   const pr = activePrescription;
   setState = "done";
+  game.pause("done");
   stopRestTimer();
   updateSetProgress();
   $("finish").hidden = true;
@@ -243,6 +248,7 @@ async function finishSession(silent = false) {
   // Free play dropdown starts something new. Manual finish (button) ends it the same way.
   if (setState !== "done") {
     setState = "done";
+    game.pause("done");
     stopRestTimer();
     updateSetProgress();
     $("finish").hidden = true;
@@ -323,6 +329,7 @@ function resetAll() {
   } else {
     setState = "free";
     recorder.start(exerciseKey, null);
+    game.resume();
   }
 }
 
@@ -341,6 +348,7 @@ exerciseSelect.addEventListener("change", async () => {
   game.setConcentric(exercise.concentric);
   game.setResting(false);
   recorder.start(exerciseKey, null); // free play is still recorded
+  game.resume();
 });
 recorder.start(exerciseKey, null);
 $("reset").addEventListener("click", resetAll);
@@ -367,6 +375,7 @@ function onFrame({ landmarks, timestampMs, fps }) {
   const visL = sideVisibility(landmarks, [la, lb, lc]);
   const visR = sideVisibility(landmarks, [ra, rb, rc]);
 
+<<<<<<< Updated upstream
   let s;
   if (lockedSide && (lockedSide === "L" ? visL : visR) >= 0.4) {
     s = lockedSide;
@@ -397,6 +406,11 @@ function onFrame({ landmarks, timestampMs, fps }) {
   }
 
   const rawAngle = angle2D(landmarks[a], landmarks[b], landmarks[c], aspect, fsRatio);
+=======
+  const rawAngle = exercise.calcAngle
+    ? exercise.calcAngle({ lm: landmarks, s, aspect, a, b, c })
+    : angle2D(landmarks[a], landmarks[b], landmarks[c], aspect);
+>>>>>>> Stashed changes
   const angle = smoother.push(rawAngle);
   const progress = progressFromAngle(exercise, angle);
   counter.update(progress, timestampMs, angle);
@@ -525,7 +539,7 @@ function setPaused(paused) {
   if (paused) {
     if (setState === "resting") restRemainingMs = Math.max(0, restEndsAt - performance.now());
     loop.pause();
-    game.pause();
+    game.pause("paused");
     drawPausedVideoOverlay();
     setStatus("Paused");
     $("pause").textContent = "Resume";
@@ -536,9 +550,15 @@ function setPaused(paused) {
       counter.holdMs = 0;
       $("phase").textContent = "Rest";
     }
-    if (setState === "resting") restEndsAt = performance.now() + restRemainingMs;
+    if (setState === "resting") {
+      restEndsAt = performance.now() + restRemainingMs;
+      game.pause("resting");
+    } else if (setState === "done") {
+      game.pause("done");
+    } else {
+      game.resume();
+    }
     loop.resume();
-    game.resume();
     setStatus("Resumed");
     $("pause").textContent = "Pause";
   }

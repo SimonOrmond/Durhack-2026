@@ -40,7 +40,10 @@ const PLANS = {
     { exerciseKey: "gluteBridge", sets: 3, reps: 10, holdSeconds: 3 },
   ],
   eve: [{ exerciseKey: "gluteBridge", sets: 3, reps: 12, holdSeconds: 5 }],
-  femi: [{ exerciseKey: "shoulderRaise", sets: 3, reps: 8, angleOverrides: { targetAngle: 90 } }],
+  femi: [
+    { exerciseKey: "rcTableSlideStage1", sets: 3, reps: 8, holdSeconds: 2, notes: "Stage 1 (Weeks 0-2): Keep movement minimal, smooth and pain-free (35° max)." },
+    { exerciseKey: "rcExternalRotationStage2", sets: 2, reps: 8, holdSeconds: 2, notes: "Tuck a rolled towel under the armpit; keep rotation gentle." },
+  ],
 };
 
 // Representative form cue per exercise for the fake history (matches the real cue wording).
@@ -51,6 +54,13 @@ const SEED_CUES = {
   shoulderFlexion: "Don't lean back, keep your trunk still",
   hipAbduction: "Stay upright, don't lean away from the leg",
   straightLegRaise: "Keep your knee locked straight",
+  rcTableSlideStage1: "Keep your back straight, don't lean back",
+  rcFlexionStage2: "Don't lean back to lift your arm",
+  rcFlexionStage3: "Keep your arm straight",
+  rcScaptionStage3: "Stay upright, don't lean sideways",
+  rcExternalRotationStage2: "Keep your elbow glued to your ribs",
+  rcExternalRotationStage3: "Keep your elbow glued to your ribs",
+  rcStandingRowStage3: "Keep your elbows lower, don't flare out",
 };
 
 export async function seedDatabase(db, { reset = false } = {}) {

@@ -27,6 +27,7 @@ export class RunnerGame {
     this.flash = 0;
     this.lastJumpRom = 0;
     this.paused = false;
+<<<<<<< Updated upstream
     this.resting = false;
     this.holdTargetMs = 2000;
     this.concentric = this.concentric ?? "toTarget"; // "toTarget" (curl/raise) | "toRest" (squat)
@@ -46,13 +47,26 @@ export class RunnerGame {
   setHoldTargetMs(ms) {
     const n = Number(ms);
     this.holdTargetMs = Number.isFinite(n) && n > 0 ? Math.max(1000, n) : 2000;
+=======
+    this.pauseReason = null;
+    this.restText = "";
+>>>>>>> Stashed changes
   }
 
-  pause() {
+  pause(reason = "paused") {
     this.paused = true;
+    this.pauseReason = reason;
+    if (reason === "resting" || reason === "done") {
+      this.player.y = this.groundY;
+      this.player.vy = 0;
+      this.player.onGround = true;
+      this.player.crouch = 0;
+      this.flash = 0;
+    }
   }
   resume() {
     this.paused = false;
+    this.pauseReason = null;
     this.last = performance.now(); // no catch-up jump after a long pause
   }
 
@@ -139,15 +153,32 @@ export class RunnerGame {
 
   drawPausedOverlay() {
     const { ctx, W, H } = this;
-    ctx.fillStyle = "rgba(15, 18, 24, 0.6)";
+    ctx.fillStyle = "rgba(15, 18, 24, 0.68)";
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "#e8ecf3";
-    ctx.font = "bold 32px system-ui";
     ctx.textAlign = "center";
-    ctx.fillText("PAUSED", W / 2, H / 2);
-    ctx.font = "14px system-ui";
-    ctx.fillStyle = "#8f9bb0";
-    ctx.fillText("Press Space or click Resume", W / 2, H / 2 + 28);
+
+    if (this.pauseReason === "resting") {
+      ctx.fillStyle = "#4fd1a0";
+      ctx.font = "bold 28px system-ui";
+      ctx.fillText("REST PERIOD", W / 2, H / 2 - 10);
+      ctx.font = "15px system-ui";
+      ctx.fillStyle = "#e8ecf3";
+      ctx.fillText(this.restText || "Rest between sets · relax your arm", W / 2, H / 2 + 20);
+    } else if (this.pauseReason === "done") {
+      ctx.fillStyle = "#7fb3ff";
+      ctx.font = "bold 30px system-ui";
+      ctx.fillText("SETS COMPLETED!", W / 2, H / 2 - 12);
+      ctx.font = "15px system-ui";
+      ctx.fillStyle = "#e8ecf3";
+      ctx.fillText(`All sets done ✓  Final Score: ${this.score}`, W / 2, H / 2 + 18);
+    } else {
+      ctx.fillStyle = "#e8ecf3";
+      ctx.font = "bold 32px system-ui";
+      ctx.fillText("PAUSED", W / 2, H / 2);
+      ctx.font = "14px system-ui";
+      ctx.fillStyle = "#8f9bb0";
+      ctx.fillText("Press Space or click Resume", W / 2, H / 2 + 28);
+    }
     ctx.textAlign = "left";
   }
 
