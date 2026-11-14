@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Physio dashboard</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Physio dashboard <span class="tag">therapist</span></h1>
+    <div class="controls">
+      <span class="user-chip" id="user-chip"></span>
+      <button id="logout">Sign out</button>
+    </div>
+  </header>
+
+  <main class="physio-layout">
+    <section class="panel">
+      <h2>Patients</h2>
+      <ul id="patient-list" class="patient-list"><li class="muted">Loading…</li></ul>
+    </section>
+
+    <section class="panel" id="patient-detail" hidden>
+      <div class="detail-head">
+        <div>
+          <h2 id="patient-name"></h2>
+          <div class="muted" id="patient-condition"></div>
+        </div>
+      </div>
+
+      <h3>Prescribe an exercise</h3>
+      <form id="prescribe-form" class="prescribe-form">
+        <label class="wide">Exercise
+          <select id="p-exercise" required></select>
+        </label>
+        <label>Sets <input id="p-sets" type="number" min="1" max="20" value="3" required /></label>
+        <label>Reps per set <input id="p-reps" type="number" min="1" max="100" value="10" required /></label>
+        <label>Hold (s) <input id="p-hold" type="number" min="0" max="60" value="0" /></label>
+        <details class="wide">
+          <summary>Adjust target angles for this patient</summary>
+          <div class="angle-row">
+            <label>Rest angle ° <input id="p-rest" type="number" min="0" max="180" /></label>
+            <label>Target angle ° <input id="p-target" type="number" min="0" max="180" /></label>
+            <div class="muted small" id="p-defaults"></div>
+          </div>
+        </details>
+        <label class="wide">Notes for the patient <input id="p-notes" maxlength="500" placeholder="e.g. Stop if sharp pain. Go slowly on the way down." /></label>
+        <div class="wide form-actions">
+          <button type="submit" id="p-submit">Send prescription</button>
+          <span id="p-status" class="muted"></span>
+        </div>
+      </form>
+
+      <h3>Current plan</h3>
+      <ul id="prescription-list" class="prescription-list"></ul>
+
+      <h3>Recent sessions</h3>
+      <table class="sessions" id="session-table">
+        <thead><tr><th>When</th><th>Exercise</th><th>Reps</th><th>Avg ROM</th><th>Best</th><th>Form cues</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script type="module" src="src/physio.js"></script>
+</body>
+</html>

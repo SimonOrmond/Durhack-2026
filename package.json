@@ -4,6 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "npx -y serve -l 5173 ."
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "seed": "node server/seed.js",
+    "seed:reset": "node server/seed.js --reset",
+    "static": "npx -y serve -l 5173 ."
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^4.22.3",
+    "mongodb": "^6.22.0"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^10.4.3"
   }
 }

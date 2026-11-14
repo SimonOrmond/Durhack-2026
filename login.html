@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in · Physio</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <h1>Physio <span class="tag">demo</span></h1>
+    <p class="muted">Sign in as a physiotherapist to prescribe exercises, or as a patient to do them.</p>
+
+    <form id="login-form" autocomplete="off">
+      <label>Username <input id="username" required autofocus /></label>
+      <label>Password <input id="password" type="password" required /></label>
+      <button type="submit" id="submit">Sign in</button>
+      <div id="error" class="form-error" hidden></div>
+    </form>
+
+    <details class="accounts">
+      <summary>Demo accounts</summary>
+      <table>
+        <tr><th>Role</th><th>Username</th><th>Password</th></tr>
+        <tr><td>Physio</td><td>dr.khan</td><td>physio</td></tr>
+        <tr><td>Physio</td><td>dr.lee</td><td>physio</td></tr>
+        <tr><td>Patient</td><td>alice, bob, chen</td><td>patient</td></tr>
+        <tr><td>Patient</td><td>dana, eve, femi</td><td>patient</td></tr>
+      </table>
+      <p class="muted small">Run <code>npm run seed</code> if these don't exist yet.</p>
+    </details>
+  </main>
+  <script type="module" src="src/login.js"></script>
+</body>
+</html>

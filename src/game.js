@@ -26,11 +26,20 @@ export class RunnerGame {
     this.shieldActive = false;
     this.flash = 0;
     this.lastJumpRom = 0;
+    this.paused = false;
+  }
+
+  pause() {
+    this.paused = true;
+  }
+  resume() {
+    this.paused = false;
+    this.last = performance.now(); // no catch-up jump after a long pause
   }
 
   // ---- pipeline event handlers ----
   onRep({ rom }) {
-    if (!this.player.onGround) return;
+    if (this.paused || !this.player.onGround) return;
     const strength = 0.55 + Math.min(1.2, Math.max(0, rom)) * 0.45; // 0.55..1.0
     this.player.vy = -620 * strength;
     this.player.onGround = false;
@@ -38,10 +47,12 @@ export class RunnerGame {
     this.score += Math.round(10 * strength);
   }
   onHold({ holdMs }) {
+    if (this.paused) return;
     this.shield = Math.min(1, holdMs / 2000); // 2 s hold = full shield
     if (this.shield >= 1) this.shieldActive = true;
   }
   onProgress({ progress }) {
+    if (this.paused) return;
     this.player.crouch = Math.max(0, Math.min(1, progress));
   }
 
@@ -49,9 +60,24 @@ export class RunnerGame {
   loop(t) {
     const dt = Math.min(0.05, (t - this.last) / 1000);
     this.last = t;
-    this.update(dt);
+    if (!this.paused) this.update(dt);
     this.draw();
+    if (this.paused) this.drawPausedOverlay();
     requestAnimationFrame((tt) => this.loop(tt));
+  }
+
+  drawPausedOverlay() {
+    const { ctx, W, H } = this;
+    ctx.fillStyle = "rgba(15, 18, 24, 0.6)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#e8ecf3";
+    ctx.font = "bold 32px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText("PAUSED", W / 2, H / 2);
+    ctx.font = "14px system-ui";
+    ctx.fillStyle = "#8f9bb0";
+    ctx.fillText("Press Space or click Resume", W / 2, H / 2 + 28);
+    ctx.textAlign = "left";
   }
 
   update(dt) {

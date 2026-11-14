@@ -70,3 +70,62 @@ video, #overlay { position: absolute; inset: 0; width: 100%; height: 100%; objec
 .hidden { display: none; }
 .status.error { background: rgba(240,106,106,.9); color: #fff; font-weight: 600; max-width: calc(100% - 24px); }
 button:disabled { opacity: .6; cursor: default; }
+.paused #pause { border-color: var(--warn); color: var(--warn); }
+
+/* ---- shared chrome ---- */
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+h2 { font-size: 17px; margin: 0 0 10px; }
+h3 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.user-chip { color: var(--muted); padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
+.form-error { color: var(--bad); font-size: 13px; margin-top: 6px; }
+input[type="text"], input[type="password"], input[type="number"], input:not([type]) {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; width: 100%;
+}
+code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+/* ---- login ---- */
+.login-page { display: grid; place-items: center; min-height: 100vh; }
+.login-card { width: min(420px, 92vw); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 26px; }
+.login-card h1 { font-size: 24px; margin: 0 0 6px; }
+.login-card form { display: grid; gap: 12px; margin: 18px 0; }
+.login-card label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.login-card button { padding: 10px; font-weight: 600; background: var(--accent); color: #0f1218; border: none; }
+.accounts summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.accounts table { width: 100%; font-size: 13px; margin-top: 8px; border-collapse: collapse; }
+.accounts th, .accounts td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+
+/* ---- physio dashboard ---- */
+.physio-layout { grid-template-columns: minmax(220px, 300px) 1fr; }
+.patient-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.patient-list li { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; display: grid; gap: 2px; background: var(--panel); }
+.patient-list li span { font-size: 12px; }
+.patient-list li:hover { border-color: var(--accent); }
+.patient-list li.active { border-color: var(--accent); background: rgba(79,209,160,.08); }
+.detail-head { display: flex; justify-content: space-between; align-items: start; }
+.prescribe-form { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.prescribe-form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.prescribe-form .wide { grid-column: 1 / -1; }
+.prescribe-form summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.angle-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.angle-row .small { grid-column: 1 / -1; }
+.form-actions { display: flex; gap: 12px; align-items: center; }
+.form-actions button { background: var(--accent); color: #0f1218; border: none; font-weight: 600; }
+.prescription-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.prescription-list li { display: flex; justify-content: space-between; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 14px; }
+.prescription-list .muted, .plan .muted { font-size: 12px; }
+.note { font-size: 12px; color: var(--warn); margin-top: 4px; }
+.small-btn { padding: 4px 8px; font-size: 12px; }
+table.sessions { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.sessions th, table.sessions td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.sessions th { color: var(--muted); font-weight: 600; font-size: 12px; }
+
+/* ---- patient plan ---- */
+.plan { display: grid; gap: 6px; }
+.plan-card { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; font-size: 14px; }
+.plan-card:hover { border-color: var(--accent); }
+.plan-card.active { border-color: var(--accent); background: rgba(79,209,160,.08); }
+.plan-card.done { opacity: .6; }
+.set-progress { display: flex; justify-content: space-between; align-items: center; font-size: 14px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.set-progress b { color: var(--accent); }
+@media (max-width: 900px) { .physio-layout { grid-template-columns: 1fr; } .prescribe-form { grid-template-columns: 1fr 1fr; } }

@@ -81,16 +81,22 @@ export async function startCamera(video) {
 /**
  * Runs detection on every new video frame.
  * onFrame({ landmarks, worldLandmarks, timestampMs, fps }) — landmarks is null when no person is seen.
- * Returns a stop() function.
+ * Returns a controller: { stop(), pause(), resume(), toggle(), get paused }.
+ * While paused the camera keeps streaming but no frames are sent to the model or to onFrame.
  */
 export function runDetectionLoop(landmarker, video, onFrame) {
   let running = true;
+  let paused = false;
   let lastVideoTime = -1;
   let lastTs = performance.now();
   let fps = 0;
 
   const tick = () => {
     if (!running) return;
+    if (paused) {
+      requestAnimationFrame(tick);
+      return;
+    }
     if (video.currentTime !== lastVideoTime && video.readyState >= 2) {
       lastVideoTime = video.currentTime;
       const now = performance.now();
@@ -107,7 +113,24 @@ export function runDetectionLoop(landmarker, video, onFrame) {
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
-  return () => {
-    running = false;
+  return {
+    stop() {
+      running = false;
+    },
+    pause() {
+      paused = true;
+    },
+    resume() {
+      // Reset timing so the first frame after a pause doesn't report a bogus fps.
+      lastTs = performance.now();
+      paused = false;
+    },
+    toggle() {
+      paused ? this.resume() : this.pause();
+      return paused;
+    },
+    get paused() {
+      return paused;
+    },
   };
 }

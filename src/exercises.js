@@ -8,13 +8,39 @@
 // Everything is normalised into a 0..1 "progress" value so the state machine
 // and the game don't need to know whether the angle gets bigger or smaller.
 
-import { LM, tiltFromVertical } from "./angles.js";
+import { LM, angle2D, tiltFromVertical } from "./angles.js";
 
 const side = (s, l, r) => (s === "L" ? l : r);
+const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+// Shared form checks ---------------------------------------------------------
+/** Torso leaning away from vertical (compensating with the trunk). */
+const trunkUpright = (maxDeg, cue) => ({
+  test: ({ lm, aspect }) => {
+    const hips = mid(lm[LM.L_HIP], lm[LM.R_HIP]);
+    const shoulders = mid(lm[LM.L_SHOULDER], lm[LM.R_SHOULDER]);
+    return tiltFromVertical(hips, shoulders, aspect) > maxDeg ? cue : null;
+  },
+});
+/** Knee on the working side should stay straight (e.g. straight leg raise). */
+const kneeStraight = (minDeg, cue) => ({
+  test: ({ lm, s, aspect }) => {
+    const k = angle2D(lm[side(s, LM.L_HIP, LM.R_HIP)], lm[side(s, LM.L_KNEE, LM.R_KNEE)], lm[side(s, LM.L_ANKLE, LM.R_ANKLE)], aspect);
+    return k < minDeg ? cue : null;
+  },
+});
+/** Elbow on the working side should stay straight (e.g. shoulder flexion). */
+const elbowStraight = (minDeg, cue) => ({
+  test: ({ lm, s, aspect }) => {
+    const e = angle2D(lm[side(s, LM.L_SHOULDER, LM.R_SHOULDER)], lm[side(s, LM.L_ELBOW, LM.R_ELBOW)], lm[side(s, LM.L_WRIST, LM.R_WRIST)], aspect);
+    return e < minDeg ? cue : null;
+  },
+});
 
 export const EXERCISES = {
   squat: {
     name: "Squat / sit-to-stand",
+    group: "Knee / hip",
     instructions: "Stand side-on to the camera, whole body in frame. Bend knees to ~90 degrees and stand back up.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE), side(s, LM.L_ANKLE, LM.R_ANKLE)],
     restAngle: 170,
@@ -32,6 +58,7 @@ export const EXERCISES = {
 
   curl: {
     name: "Elbow flexion (bicep curl)",
+    group: "Elbow",
     instructions: "Face the camera, arm by your side. Bend the elbow fully, then straighten.",
     joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW), side(s, LM.L_WRIST, LM.R_WRIST)],
     restAngle: 160,
@@ -49,28 +76,86 @@ export const EXERCISES = {
 
   shoulderRaise: {
     name: "Shoulder abduction (arm raise)",
+    group: "Shoulder",
     instructions: "Face the camera. Raise one arm out to the side and up above shoulder height, then lower.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW)],
     restAngle: 20,
     targetAngle: 140,
+    formChecks: [trunkUpright(15, "Keep your torso upright")],
+  },
+
+  kneeExtension: {
+    name: "Seated knee extension",
+    group: "Knee",
+    instructions: "Sit side-on to the camera. Straighten the knee fully, hold briefly, then lower.",
+    joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE), side(s, LM.L_ANKLE, LM.R_ANKLE)],
+    restAngle: 95,
+    targetAngle: 165,
+    formChecks: [],
+  },
+  // --- Shoulder rehab (frozen shoulder, post-op ROM programmes) ---------------
+  shoulderFlexion: {
+    name: "Shoulder flexion (forward arm raise)",
+    group: "Shoulder",
+    instructions: "Stand side-on to the camera, arm straight by your side. Raise the arm forwards and up towards the ceiling, then lower slowly.",
+    joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_WRIST, LM.R_WRIST)],
+    restAngle: 15,
+    targetAngle: 150,
     formChecks: [
+      elbowStraight(150, "Keep your arm straight"),
       {
-        test: ({ lm, aspect }) => {
-          const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-          const hips = mid(lm[LM.L_HIP], lm[LM.R_HIP]);
-          const shoulders = mid(lm[LM.L_SHOULDER], lm[LM.R_SHOULDER]);
-          return tiltFromVertical(hips, shoulders, aspect) > 15 ? "Keep your torso upright" : null;
+        // leaning back to get the arm higher is the classic compensation
+        test: ({ lm, s, aspect }) => {
+          const hip = lm[side(s, LM.L_HIP, LM.R_HIP)];
+          const sh = lm[side(s, LM.L_SHOULDER, LM.R_SHOULDER)];
+          return tiltFromVertical(hip, sh, aspect) > 20 ? "Don't lean back, keep your trunk still" : null;
         },
       },
     ],
   },
 
-  kneeExtension: {
-    name: "Seated knee extension",
-    instructions: "Sit side-on to the camera. Straighten the knee fully, hold briefly, then lower.",
+  // --- Hip rehab (hip OA, post hip replacement, gluteal strengthening) ---------
+  hipAbduction: {
+    name: "Standing hip abduction (leg out to side)",
+    group: "Hip",
+    instructions: "Face the camera, hold a chair or wall for balance. Keeping the leg straight, lift it out to the side, then lower with control.",
+    joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_ANKLE, LM.R_ANKLE)],
+    restAngle: 175,
+    targetAngle: 145,
+    formChecks: [
+      trunkUpright(12, "Stay upright, don't lean away from the leg"),
+      kneeStraight(160, "Keep your leg straight"),
+    ],
+  },
+
+  gluteBridge: {
+    name: "Glute bridge",
+    group: "Hip / lower back",
+    instructions: "Lie on your back side-on to the camera, knees bent, feet flat. Squeeze your glutes and lift your hips until your body is a straight line, then lower.",
+    joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE)],
+    restAngle: 125,
+    targetAngle: 170,
+    formChecks: [],
+  },
+
+  // --- Knee rehab (post knee replacement / ACL: quads activation and flexion) --
+  straightLegRaise: {
+    name: "Straight leg raise (lying)",
+    group: "Knee",
+    instructions: "Lie on your back side-on to the camera. Tighten your thigh, keep the knee locked straight and lift the leg to about 45 degrees, then lower slowly.",
+    joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE)],
+    restAngle: 175,
+    targetAngle: 130,
+    formChecks: [kneeStraight(160, "Keep your knee locked straight")],
+  },
+
+  heelSlide: {
+    name: "Heel slide (knee flexion)",
+    group: "Knee",
+    instructions: "Lie on your back side-on to the camera, leg straight. Slide your heel towards your bottom to bend the knee as far as comfortable, then slide back.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE), side(s, LM.L_ANKLE, LM.R_ANKLE)],
-    restAngle: 95,
-    targetAngle: 165,
+    restAngle: 175,
+    targetAngle: 90,
     formChecks: [],
   },
 };
