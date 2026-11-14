@@ -53,11 +53,13 @@ export class SessionRecorder {
   /** POST to the API. Resolves to the saved document, or null if there was nothing to save. */
   async save() {
     if (!this.active || !this.reps.length) return null;
+    const setsPrescribed = this.prescription?.sets ?? null;
     const doc = await Api.saveSession({
       exerciseKey: this.exerciseKey,
       prescriptionId: this.prescription?._id ?? null,
       startedAt: this.startedAt.toISOString(),
       setsCompleted: this.setsCompleted,
+      setsPrescribed,
       reps: this.reps,
     });
     this.saved = true;

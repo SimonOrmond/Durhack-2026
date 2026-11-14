@@ -210,10 +210,14 @@ function renderSessions() {
   for (const s of sessionsCache) {
     const tr = document.createElement("tr");
     tr.dataset.id = s._id;
-    tr.className = s._id === selectedSessionId ? "active" : "";
+    const isIncomplete = s.completedEarly === true;
+    tr.className = [s._id === selectedSessionId ? "active" : "", isIncomplete ? "session-incomplete" : ""].filter(Boolean).join(" ");
     const sm = s.summary;
+    const incompleteTag = isIncomplete
+      ? `<span class="incomplete-tag" title="${s.setsCompleted}/${s.setsPrescribed} sets completed">⚠ Incomplete</span>`
+      : "";
     tr.innerHTML = `
-      <td>${when(s.startedAt)}</td>
+      <td>${when(s.startedAt)}${incompleteTag}</td>
       <td>${esc(s.exerciseName)}</td>
       <td>${sm.repCount}</td>
       <td>${pct(sm.avgRom)}${sm.avgPeakAngle != null ? ` <span class="muted">${deg(sm.avgPeakAngle)}</span>` : ""}</td>

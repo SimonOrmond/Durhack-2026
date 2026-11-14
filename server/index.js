@@ -191,6 +191,9 @@ app.post(
     const patient = await getDb().collection("users").findOne({ _id: patientId });
     const startedAt = b.startedAt ? new Date(b.startedAt) : new Date();
     const endedAt = new Date();
+    const setsCompleted = Math.max(0, Number(b.setsCompleted) || 0);
+    const setsPrescribed = b.setsPrescribed != null ? Number(b.setsPrescribed) : null;
+    const completedEarly = setsPrescribed != null && setsCompleted < setsPrescribed;
     const doc = {
       patientId,
       physioId: patient?.physioId ?? null,
@@ -199,7 +202,9 @@ app.post(
       exerciseName: ex.name,
       startedAt,
       endedAt,
-      setsCompleted: Math.max(0, Number(b.setsCompleted) || 0),
+      setsCompleted,
+      setsPrescribed,
+      completedEarly,
       reps,
       summary: summarise(reps, startedAt, endedAt),
       source: "app",
