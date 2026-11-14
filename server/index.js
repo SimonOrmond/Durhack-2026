@@ -134,6 +134,7 @@ app.post(
     const durationWeeks = Math.max(1, Math.min(52, Number(b.durationWeeks) || 4));
     const daysPerWeek = Math.max(1, Math.min(7, Number(b.daysPerWeek) || 3));
     const timelinePhase = String(b.timelinePhase ?? "").slice(0, 100);
+    const tempo = ["slow", "medium", "fast"].includes(b.tempo) ? b.tempo : "slow";
     let angleOverrides = null;
     if (b.angleOverrides && typeof b.angleOverrides === "object") {
       angleOverrides = {};
@@ -158,6 +159,7 @@ app.post(
       durationWeeks,
       daysPerWeek,
       timelinePhase,
+      tempo,
       startDate,
       endDate,
       angleOverrides,

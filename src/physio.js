@@ -1,6 +1,7 @@
 // Physio dashboard: pick a patient, send prescriptions, analyse their sessions.
 import { Api, requireUser, logout } from "./api.js";
 import { lineChart, barChart, stackedBars, empty, SERIES } from "./charts.js";
+import { TEMPOS, DEFAULT_TEMPO, tempoSummary } from "./game.js";
 
 const user = requireUser("physio");
 if (!user) await new Promise(() => {}); // halt this module while the browser navigates to login
@@ -8,6 +9,11 @@ if (!user) await new Promise(() => {}); // halt this module while the browser na
 const $ = (id) => document.getElementById(id);
 $("user-chip").textContent = user.name;
 $("logout").addEventListener("click", logout);
+
+// Rep tempo: show the patient-facing timing (matches the speed the cave hills arrive at)
+const syncTempoHint = () => { $("p-tempo-hint").textContent = tempoSummary($("p-tempo").value); };
+$("p-tempo").addEventListener("change", syncTempoHint);
+syncTempoHint();
 
 let exercises = [];
 let patients = [];
@@ -169,7 +175,7 @@ async function loadPrescriptions() {
           <span class="timeline-badge">Week ${currentWeek} of ${weeks} · ${freq}d/wk</span>
         </div>
         <div class="muted" style="margin-top:2px">
-          ${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${pr.sets > 1 ? ` · rest ${pr.restSeconds ?? 60}s` : ""}${ov}
+          ${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${pr.sets > 1 ? ` · rest ${pr.restSeconds ?? 60}s` : ""} · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo${ov}
         </div>
         <div class="muted small" style="margin-top:3px;font-size:11px">
           📅 Timeline: ${dateRangeStr} (${weeks} weeks total)
@@ -203,6 +209,7 @@ $("prescribe-form").addEventListener("submit", async (e) => {
       durationWeeks: $("p-weeks").value,
       daysPerWeek: $("p-frequency").value,
       timelinePhase: $("p-phase").value,
+      tempo: $("p-tempo").value,
       angleOverrides: (() => {
         const range = Number($("p-range").value);
         if (!Number.isFinite(range) || range <= 0) return null;

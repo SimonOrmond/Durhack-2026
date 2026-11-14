@@ -1,7 +1,23 @@
 // Stage 4: DurHack Dino ("Dino Dan") game driven by exercise motion.
 // Supports two modes:
-//   - "glider" (default): smooth cave humps whose length sets rep tempo (Slow 4s / Smooth 3s / Quick 2s)
+//   - "glider" (default): smooth cave humps at one consistent, physio-prescribed tempo (see TEMPOS)
 //   - "runner": bicep-curl angle states (<=90 jump, 90-121 run, >=121 duck), hold -> charges shield
+
+// Half the height of the glider cave corridor (was 57 → 114px corridor; now 144px).
+const CAVE_HALF_H = 72;
+
+// Rep tempos a physio can prescribe. Each sets how long one cave hill takes to pass:
+// lift (up), hold at the top, controlled lower (down), then a rest in the valley.
+export const TEMPOS = {
+  slow:   { key: "slow",   name: "Slow",   up: 3,    hold: 1,    down: 3,    rest: 1.5 },
+  medium: { key: "medium", name: "Medium", up: 2,    hold: 0.75, down: 2,    rest: 1.25 },
+  fast:   { key: "fast",   name: "Fast",   up: 1.25, hold: 0.5,  down: 1.25, rest: 1 },
+};
+export const DEFAULT_TEMPO = "slow";
+export const tempoSummary = (key) => {
+  const t = TEMPOS[key] ?? TEMPOS[DEFAULT_TEMPO];
+  return `${t.up}s up · ${t.hold}s hold · ${t.down}s down`;
+};
 
 const PB_KEYS = {
   glider: "durhack_glider_pb",
@@ -100,6 +116,7 @@ export class RunnerGame {
   reset(keepWaiting = false) {
     this.groundY = (this.H || 320) - 46;
     this.mode = this.mode ?? "glider";
+    this.tempo = this.tempo ?? DEFAULT_TEMPO;
     const isGlider = this.mode === "glider";
     this.player = {
       x: Math.min(86, Math.max(52, Math.round((this.W || 480) * 0.2))),
@@ -180,6 +197,18 @@ export class RunnerGame {
       this.humps = [];
       this.coinItems = [];
     }
+  }
+
+  /** Set the rep tempo (slow | medium | fast). Hills not yet on screen are respawned at the new tempo. */
+  setTempo(key) {
+    const next = TEMPOS[key] ? key : DEFAULT_TEMPO;
+    if (next === this.tempo) return;
+    this.tempo = next;
+    if (!this.humps?.length) return;
+    const viewEnd = this.scrollX + this.W;
+    this.humps = this.humps.filter((h) => h.worldStartX <= viewEnd);
+    const lastEnd = this.humps.length ? this.humps[this.humps.length - 1].worldEndX : this.scrollX;
+    this.coinItems = this.coinItems.filter((c) => c.x + this.scrollX <= lastEnd);
   }
 
   setHoldTargetMs(ms) {
@@ -401,7 +430,7 @@ export class RunnerGame {
   }
 
   caveBoundsAtScreenX(screenX) {
-    const halfH = 57; // corridorH = 114px
+    const halfH = CAVE_HALF_H;
     const cy = this.#caveCenterAtWorldX(this.scrollX + screenX);
     const topY = Math.max(36, cy - halfH);
     const botY = Math.min(this.groundY, cy + halfH);
@@ -409,15 +438,20 @@ export class RunnerGame {
   }
 
   #spawnCaveHump() {
-    const profiles = [
-      { label: "SMOOTH 3s", seconds: 3, riseLen: 190, holdLen: 65, fallLen: 190, peakCenterY: 98 },
-      { label: "SLOW 4s", seconds: 4, riseLen: 265, holdLen: 90, fallLen: 265, peakCenterY: 94 },
-      { label: "QUICK 2s", seconds: 2, riseLen: 135, holdLen: 45, fallLen: 135, peakCenterY: 104 },
-    ];
-    const prof = profiles[this.spawnIndex % profiles.length];
+    // Every hump uses the prescribed tempo so the slope (gradient) is consistent rep to rep.
+    const t = TEMPOS[this.tempo] ?? TEMPOS[DEFAULT_TEMPO];
+    const sec = (s) => Math.round(this.speed * s);
+    const prof = {
+      label: `${t.name.toUpperCase()} ${t.up + t.hold + t.down}s`,
+      seconds: t.up + t.hold + t.down,
+      riseLen: sec(t.up),
+      holdLen: sec(t.hold),
+      fallLen: sec(t.down),
+      peakCenterY: 100,
+    };
     this.spawnIndex += 1;
 
-    const valleyGap = 190;
+    const valleyGap = sec(t.rest);
     const prevEnd = this.humps.length ? this.humps[this.humps.length - 1].worldEndX : 0;
     const minStart = this.scrollX + Math.max(Math.round(this.W * 0.78), this.player.x + 250);
     const worldStartX = this.humps.length ? Math.max(minStart, prevEnd + valleyGap) : minStart;
@@ -881,7 +915,7 @@ export class RunnerGame {
     for (const h of this.humps) {
       const crestX = h.worldStartX + h.riseLen + h.holdLen / 2 - this.scrollX;
       if (crestX < -60 || crestX > W + 60) continue;
-      const moundTop = Math.min(groundY, h.peakCenterY + 57);
+      const moundTop = Math.min(groundY, h.peakCenterY + CAVE_HALF_H);
       const labelY = Math.min(groundY - 12, moundTop + 20);
       ctx.fillStyle = "#d8b4fe";
       ctx.font = "bold 11px system-ui";
