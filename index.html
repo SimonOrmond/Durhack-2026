@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Physio Pose Pipeline</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Physio pose pipeline <span class="tag">draft</span></h1>
+    <div class="controls">
+      <label>Exercise
+        <select id="exercise"></select>
+      </label>
+      <label><input type="checkbox" id="mirror" checked /> Mirror</label>
+      <label><input type="checkbox" id="debug" /> Debug</label>
+      <button id="start" disabled>Loading scripts…</button>
+      <button id="reset">Reset</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="stage">
+      <div class="video-wrap">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="status" class="status">Loading scripts…</div>
+      </div>
+      <div class="instructions" id="instructions"></div>
+    </section>
+
+    <section class="panel">
+      <div class="stats">
+        <div class="stat">
+          <div class="label">Reps</div>
+          <div class="value" id="reps">0</div>
+        </div>
+        <div class="stat">
+          <div class="label">Phase</div>
+          <div class="value small" id="phase">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Angle</div>
+          <div class="value small"><span id="angle">—</span>°</div>
+        </div>
+        <div class="stat">
+          <div class="label">Last ROM</div>
+          <div class="value small" id="rom">—</div>
+        </div>
+      </div>
+
+      <div class="gauge">
+        <div class="gauge-label"><span>Rest</span><span>Target</span></div>
+        <div class="gauge-track">
+          <div class="gauge-fill" id="gauge"></div>
+          <div class="gauge-mark" style="left:20%"></div>
+          <div class="gauge-mark" style="left:80%"></div>
+        </div>
+      </div>
+
+      <div class="cue" id="cue">&nbsp;</div>
+
+      <canvas id="game" width="640" height="300"></canvas>
+      <div class="game-help">
+        <b>Game:</b> each completed rep makes the runner jump. Bigger range of motion = higher jump.
+        Holding the target position charges the shield.
+      </div>
+
+      <pre id="debug-out" class="debug hidden"></pre>
+    </section>
+  </main>
+
+  <script>
+    // Runs before the module: catch the two ways the module can silently fail to load.
+    (function () {
+      var status = document.getElementById("status");
+      if (location.protocol === "file:") {
+        status.textContent = "Opened as a file:// URL. ES modules and the camera need a server: run `npm start` and open http://localhost:5173";
+        status.className = "status error";
+        return;
+      }
+      setTimeout(function () {
+        var btn = document.getElementById("start");
+        if (btn.disabled && btn.textContent === "Loading scripts…") {
+          status.textContent = "Scripts failed to load. Press F12 and check the Console tab for the error.";
+          status.className = "status error";
+        }
+      }, 8000);
+    })();
+  </script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

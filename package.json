@@ -1,0 +1,9 @@
+{
+  "name": "durhack-2026-physio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "npx -y serve -l 5173 ."
+  }
+}
