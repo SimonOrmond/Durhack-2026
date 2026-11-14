@@ -141,7 +141,7 @@ export const EXERCISES = {
   },
 
   curl: {
-    name: "Elbow flexion (bicep curl)",
+    name: "Bicep curl (elbow flexion)",
     group: "Elbow",
     concentric: "toTarget", // curling the hand up is the upward/lifting phase
     instructions: "Face or angle slightly to the camera. Hold ~90–120° to RUN, curl up (≤90°) to JUMP, and extend your arm down (≥121°) to DUCK.",
