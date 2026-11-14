@@ -39,8 +39,29 @@ const exerciseSelect = $("exercise");
   }
 }
 
+const UPPER_BODY_GROUPS = new Set(["Shoulder", "Elbow", "Rotator cuff"]);
+function syncExerciseBanner(trackedSide = null) {
+  const el = $("exercise-banner");
+  if (!el || !exercise) return;
+  const sideVal = trackedSide || $("side")?.value || "auto";
+  const sideLabel = sideVal === "L" ? "Left side" : sideVal === "R" ? "Right side" : "Auto side";
+  const isCurl = exerciseKey === "curl";
+  el.classList.toggle("is-curl", isCurl);
+  el.textContent = isCurl
+    ? `💪 ACTIVE MOVEMENT: BICEP CURL · ${sideLabel}`
+    : `Movement: ${exercise.name} · ${sideLabel}`;
+}
+function syncDefaultSide(ex) {
+  const sideEl = $("side");
+  if (sideEl && ex) {
+    sideEl.value = UPPER_BODY_GROUPS.has(ex.group) ? "R" : "auto";
+  }
+  syncExerciseBanner();
+}
+
 let exerciseKey = exerciseSelect.value;
 let exercise = EXERCISES[exerciseKey];
+syncDefaultSide(exercise);
 $("instructions").textContent = exercise.instructions;
 $("cue").textContent = exercise.instructions;
 $("cue").className = "cue neutral";
@@ -179,6 +200,7 @@ async function loadPlan() {
     exerciseKey = firstPr.exerciseKey;
     exercise = { ...EXERCISES[exerciseKey], ...(firstPr.angleOverrides ?? {}) };
     exerciseSelect.value = exerciseKey;
+    syncDefaultSide(exercise);
     $("instructions").textContent = exercise.instructions + (firstPr.notes ? ` Physio note: ${firstPr.notes}` : "");
     game.setConcentric(exercise.concentric);
     game.setHoldTargetMs((firstPr.holdSeconds || 2) * 1000);
@@ -521,6 +543,7 @@ async function applyPrescription(pr) {
   exerciseKey = pr.exerciseKey;
   exercise = { ...EXERCISES[exerciseKey], ...(pr.angleOverrides ?? {}) };
   exerciseSelect.value = exerciseKey;
+  syncDefaultSide(exercise);
   $("instructions").textContent = exercise.instructions + (pr.notes ? ` Physio note: ${pr.notes}` : "");
   for (const c of $("plan").children) c.classList.toggle("active", c.dataset?.id === pr._id);
   stopRestTimer();
@@ -755,8 +778,10 @@ function syncModeConstraints(mode) {
     exerciseSelect.value = "curl";
     exerciseKey = "curl";
     exercise = EXERCISES.curl;
+    syncDefaultSide(exercise);
     $("instructions").textContent = exercise.instructions;
     resetCounters();
+    flashCue("Movement set to Bicep Curl for Dino Runner", "good");
     game.setConcentric(exercise.concentric);
     game.setTempo(DEFAULT_TEMPO);
     game.setResting(false);
@@ -995,6 +1020,7 @@ exerciseSelect.addEventListener("change", async () => {
   for (const c of $("plan").children) c.classList?.remove("active");
   exerciseKey = exerciseSelect.value;
   exercise = EXERCISES[exerciseKey];
+  syncDefaultSide(exercise);
   $("instructions").textContent = exercise.instructions;
   resetCounters();
   game.setConcentric(exercise.concentric);
@@ -1014,6 +1040,7 @@ $("side")?.addEventListener("change", () => {
   $("phase").textContent = "Rest";
   $("phase").classList.remove("active-phase");
   $("gauge").classList.remove("at-target");
+  syncExerciseBanner();
 });
 $("mirror").addEventListener("change", (e) => document.body.classList.toggle("mirror", e.target.checked));
 document.body.classList.toggle("mirror", $("mirror").checked);
@@ -1037,7 +1064,7 @@ function onFrame({ landmarks, timestampMs, fps }) {
   }
 
   const aspect = video.videoWidth / video.videoHeight;
-  const sidePref = $("side")?.value ?? "auto";
+  const sidePref = $("side")?.value || (UPPER_BODY_GROUPS.has(exercise.group) ? "R" : "auto");
   const [la, lb, lc] = exercise.joints("L");
   const [ra, rb, rc] = exercise.joints("R");
   const visL = sideVisibility(landmarks, [la, lb, lc]);
@@ -1170,7 +1197,7 @@ function onFrame({ landmarks, timestampMs, fps }) {
 
   // Color-coded angle + state pill at the joint vertex (un-mirrored if mirror is on)
   const [bx, by] = pb;
-  const badgeText = `${Math.round(angle)}° · ${visState.label}`;
+  const badgeText = `${exerciseKey === "curl" ? "BICEP CURL · " : ""}${Math.round(angle)}° · ${visState.label}`;
   octx.save();
   octx.translate(bx, by - 20);
   if (isMirror) octx.scale(-1, 1);
@@ -1200,7 +1227,9 @@ function onFrame({ landmarks, timestampMs, fps }) {
     phaseEl.style.color = "";
     $("gauge").style.backgroundColor = "";
   }
-  $("status").textContent = `Tracking (${s === "L" ? "left" : "right"} side) · ${fps.toFixed(0)} fps`;
+  syncExerciseBanner(s);
+  const moveLabel = exerciseKey === "curl" ? "Bicep curl" : exercise.name;
+  $("status").textContent = `${moveLabel} (${s === "L" ? "left" : "right"} side) · ${fps.toFixed(0)} fps`;
   drawSetOverlay();
 
   if (!$("debug-out").classList.contains("hidden")) {
