@@ -45,6 +45,7 @@ export const Api = {
   patient: (id) => api(`/patients/${id}`),
   prescriptions: (patientId, all = false) => api(`/patients/${patientId}/prescriptions${all ? "?all=1" : ""}`),
   createPrescription: (body) => api("/prescriptions", { method: "POST", body }),
+  updatePrescription: (id, body) => api(`/prescriptions/${id}`, { method: "PATCH", body }),
   stopPrescription: (id) => api(`/prescriptions/${id}`, { method: "DELETE" }),
   saveSession: (body) => api("/sessions", { method: "POST", body }),
   sessions: (patientId, limit = 20) => api(`/patients/${patientId}/sessions?limit=${limit}`),

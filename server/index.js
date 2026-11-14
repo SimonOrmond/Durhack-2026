@@ -6,6 +6,7 @@
 //   GET  /api/patients/:id                   one patient
 //   GET  /api/patients/:id/prescriptions     active prescriptions (?all=1 for inactive too)
 //   POST /api/prescriptions                  create (physio only)
+//   PATCH /api/prescriptions/:id             edit sets/reps/tempo/etc. (physio only; exercise is fixed)
 //   DELETE /api/prescriptions/:id            deactivate (physio only)
 //   POST /api/sessions                       save a completed session (patient)
 //   GET  /api/patients/:id/sessions          recent sessions, summaries only (?limit=20)
@@ -118,6 +119,32 @@ app.get(
   })
 );
 
+/** Validate + clamp the editable fields of a prescription (shared by create and edit). */
+function prescriptionFields(b, ex) {
+  const durationWeeks = Math.max(1, Math.min(52, Number(b.durationWeeks) || 4));
+  let angleOverrides = null;
+  if (b.angleOverrides && typeof b.angleOverrides === "object") {
+    angleOverrides = {};
+    for (const k of ["restAngle", "targetAngle"]) {
+      const v = Number(b.angleOverrides[k]);
+      if (Number.isFinite(v) && v >= 0 && v <= 180 && v !== ex[k]) angleOverrides[k] = v;
+    }
+    if (!Object.keys(angleOverrides).length) angleOverrides = null;
+  }
+  return {
+    sets: Math.max(1, Math.min(20, Number(b.sets) || 1)),
+    reps: Math.max(1, Math.min(100, Number(b.reps) || 10)),
+    holdSeconds: Math.max(0, Math.min(60, Number(b.holdSeconds) || 0)),
+    restSeconds: b.restSeconds === undefined || b.restSeconds === "" ? 60 : Math.max(0, Math.min(600, Number(b.restSeconds) || 0)),
+    durationWeeks,
+    daysPerWeek: Math.max(1, Math.min(7, Number(b.daysPerWeek) || 3)),
+    timelinePhase: String(b.timelinePhase ?? "").slice(0, 100),
+    tempo: ["slow", "medium", "fast"].includes(b.tempo) ? b.tempo : "slow",
+    angleOverrides,
+    notes: String(b.notes ?? "").slice(0, 500),
+  };
+}
+
 app.post(
   "/api/prescriptions",
   requireRole("physio"),
@@ -127,49 +154,50 @@ app.post(
     const ex = EXERCISES[b.exerciseKey];
     if (!patientId) return res.status(400).json({ error: "patientId required" });
     if (!ex) return res.status(400).json({ error: `Unknown exerciseKey "${b.exerciseKey}"` });
-    const sets = Math.max(1, Math.min(20, Number(b.sets) || 1));
-    const reps = Math.max(1, Math.min(100, Number(b.reps) || 10));
-    const holdSeconds = Math.max(0, Math.min(60, Number(b.holdSeconds) || 0));
-    const restSeconds = b.restSeconds === undefined || b.restSeconds === "" ? 60 : Math.max(0, Math.min(600, Number(b.restSeconds) || 0));
-    const durationWeeks = Math.max(1, Math.min(52, Number(b.durationWeeks) || 4));
-    const daysPerWeek = Math.max(1, Math.min(7, Number(b.daysPerWeek) || 3));
-    const timelinePhase = String(b.timelinePhase ?? "").slice(0, 100);
-    const tempo = ["slow", "medium", "fast"].includes(b.tempo) ? b.tempo : "slow";
-    let angleOverrides = null;
-    if (b.angleOverrides && typeof b.angleOverrides === "object") {
-      angleOverrides = {};
-      for (const k of ["restAngle", "targetAngle"]) {
-        const v = Number(b.angleOverrides[k]);
-        if (Number.isFinite(v) && v >= 0 && v <= 180 && v !== ex[k]) angleOverrides[k] = v;
-      }
-      if (!Object.keys(angleOverrides).length) angleOverrides = null;
-    }
+    const fields = prescriptionFields(b, ex);
     const now = new Date();
     const startDate = b.startDate ? new Date(b.startDate) : now;
-    const endDate = new Date(startDate.getTime() + durationWeeks * 7 * 86400e3);
+    const endDate = new Date(startDate.getTime() + fields.durationWeeks * 7 * 86400e3);
     const doc = {
       patientId,
       physioId: req.user._id,
       exerciseKey: b.exerciseKey,
       exerciseName: ex.name,
-      sets,
-      reps,
-      holdSeconds,
-      restSeconds,
-      durationWeeks,
-      daysPerWeek,
-      timelinePhase,
-      tempo,
+      ...fields,
       startDate,
       endDate,
-      angleOverrides,
-      notes: String(b.notes ?? "").slice(0, 500),
       active: true,
       createdAt: now,
       updatedAt: now,
     };
     const { insertedId } = await getDb().collection("prescriptions").insertOne(doc);
     res.status(201).json({ _id: insertedId, ...doc });
+  })
+);
+
+// Edit an active prescription. The exercise (key/name), patient and start date can't change;
+// any editable field left out of the body keeps its current value.
+app.patch(
+  "/api/prescriptions/:id",
+  requireRole("physio"),
+  wrap(async (req, res) => {
+    const col = getDb().collection("prescriptions");
+    const _id = oid(req.params.id);
+    const existing = _id && (await col.findOne({ _id, active: true }));
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    const ex = EXERCISES[existing.exerciseKey];
+    if (!ex) return res.status(400).json({ error: `Unknown exerciseKey "${existing.exerciseKey}"` });
+
+    const b = req.body ?? {};
+    const editable = ["sets", "reps", "holdSeconds", "restSeconds", "durationWeeks", "daysPerWeek", "timelinePhase", "tempo", "angleOverrides", "notes"];
+    const merged = { ...existing };
+    for (const k of editable) if (k in b) merged[k] = b[k];
+    const fields = prescriptionFields(merged, ex);
+    const startDate = existing.startDate ? new Date(existing.startDate) : new Date(existing.createdAt);
+    const endDate = new Date(startDate.getTime() + fields.durationWeeks * 7 * 86400e3);
+    const update = { ...fields, endDate, updatedAt: new Date() };
+    await col.updateOne({ _id }, { $set: update });
+    res.json({ ...existing, ...update });
   })
 );
 

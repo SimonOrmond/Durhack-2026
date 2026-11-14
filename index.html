@@ -9,35 +9,70 @@
 </head>
 <body>
   <header class="sticky-header">
-    <h1>Your exercises <span class="tag">patient</span></h1>
+    <h1>Your physio <span class="tag">patient</span></h1>
+    <nav class="view-tabs" id="view-tabs">
+      <a href="#dashboard" data-view="dashboard">Dashboard</a>
+      <a href="#exercise" data-view="exercise">Exercise</a>
+      <a href="#progress" data-view="progress">Progress</a>
+    </nav>
     <div class="controls">
       <span class="user-chip" id="user-chip"></span>
-      <label>Free play
-        <select id="exercise"></select>
-      </label>
-      <label>Game
-        <select id="game-mode">
-          <option value="glider">Cave Glider</option>
-          <option value="runner">Dino Runner</option>
-        </select>
-      </label>
-      <label>Side
-        <select id="side">
-          <option value="auto">Auto</option>
-          <option value="R">Right</option>
-          <option value="L">Left</option>
-        </select>
-      </label>
-      <label><input type="checkbox" id="mirror" checked /> Mirror</label>
-      <label><input type="checkbox" id="debug" /> Debug</label>
-      <button id="start" class="btn-start" disabled>Loading scripts…</button>
-      <button id="pause" disabled title="Space or P">Pause</button>
-      <button id="reset">Reset</button>
       <button id="logout">Sign out</button>
     </div>
   </header>
 
   <main class="patient-main">
+    <!-- ===== Dashboard ===== -->
+    <section class="view" id="view-dashboard" data-view="dashboard">
+      <div class="dash-head">
+        <div>
+          <h2 style="margin:0" id="dash-greeting">Hello</h2>
+          <div class="muted small" id="dash-date"></div>
+        </div>
+        <a class="btn-link" href="#progress">View progress →</a>
+      </div>
+      <div class="dash-tiles">
+        <div class="tile"><div class="label">Today</div><div class="value" id="dash-today">—</div><div class="muted small" id="dash-today-sub"></div></div>
+        <div class="tile"><div class="label">This week</div><div class="value" id="dash-week">—</div><div class="muted small" id="dash-week-sub"></div></div>
+        <div class="tile"><div class="label">Total reps</div><div class="value" id="dash-reps">—</div><div class="muted small">all time</div></div>
+      </div>
+      <div class="plan-section">
+        <h3 style="margin-top:0">Your tasks <span class="muted small">from your physio</span></h3>
+        <ul class="task-list" id="dash-tasks"><li class="muted small">Loading…</li></ul>
+      </div>
+    </section>
+
+    <!-- ===== Exercise ===== -->
+    <section class="view" id="view-exercise" data-view="exercise" hidden>
+      <div class="exercise-toolbar controls">
+        <label>Free play
+          <select id="exercise"></select>
+        </label>
+        <label>Game
+          <select id="game-mode">
+            <option value="glider">Cave Glider</option>
+            <option value="runner">Dino Runner</option>
+          </select>
+        </label>
+        <label>Side
+          <select id="side">
+            <option value="auto">Auto</option>
+            <option value="R">Right</option>
+            <option value="L">Left</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="mirror" checked /> Mirror</label>
+        <label><input type="checkbox" id="debug" /> Debug</label>
+        <button id="start" class="btn-start" disabled>Loading scripts…</button>
+        <button id="pause" disabled title="Space or P">Pause</button>
+        <button id="reset">Reset</button>
+      </div>
+
+      <div class="plan-section">
+        <h3 style="margin-top:0">Outstanding exercises <span class="muted small" id="plan-hint">click one to load it</span></h3>
+        <div id="plan" class="plan"><div class="muted small">Loading…</div></div>
+      </div>
+
     <!-- Camera + Game side-by-side layout -->
     <section class="live-dock">
       <div class="live-grid">
@@ -103,18 +138,17 @@
       </div>
     </section>
 
-    <!-- Lower content: Today's plan and debug readout -->
-    <section class="lower-content">
-      <div class="plan-section">
-        <h3 style="margin-top:0">Today's plan <span class="muted small" id="plan-hint">from your physio</span></h3>
-        <div id="plan" class="plan"><div class="muted small">Loading…</div></div>
-      </div>
 
+      <pre id="debug-out" class="debug hidden"></pre>
+    </section>
+
+    <!-- ===== Progress ===== -->
+    <section class="view" id="view-progress" data-view="progress" hidden>
       <!-- Exercise Timeline & Completed Days Activity -->
       <div class="timeline-section" id="timeline-section">
         <div class="timeline-head">
           <div>
-            <h3 style="margin:0">Exercise Timeline &amp; Completed Days</h3>
+            <h2 style="margin:0">Progress</h2>
             <div class="muted small">Your prescribed programme timeline and workout days completed</div>
           </div>
           <div id="timeline-stats-badge"></div>
@@ -130,6 +164,17 @@
             <div class="week-summary" id="week-summary"></div>
           </div>
           <div class="week-grid" id="week-grid"></div>
+        </div>
+
+        <!-- This week's progress per prescription (e.g. 2 of 3 days) -->
+        <div class="calendar-card">
+          <div class="calendar-head">
+            <div>
+              <b>This Week's Prescription Progress</b>
+              <div class="muted small">Days completed this week for each exercise, against your physio's target</div>
+            </div>
+          </div>
+          <div class="weekly-rx" id="weekly-rx"><div class="muted small">Loading…</div></div>
         </div>
 
         <!-- Programme Timeline of Prescribed Exercises -->
@@ -155,7 +200,6 @@
         </div>
       </div>
 
-      <pre id="debug-out" class="debug hidden"></pre>
     </section>
   </main>
 

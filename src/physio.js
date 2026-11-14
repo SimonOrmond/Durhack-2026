@@ -182,14 +182,97 @@ async function loadPrescriptions() {
         </div>
         ${pr.notes ? `<div class="note">“${esc(pr.notes)}”</div>` : ""}
       </div>
-      <button class="small-btn" data-stop="${pr._id}">Stop</button>`;
+      <div class="pr-actions">
+        <button class="small-btn" data-edit>Edit</button>
+        <button class="small-btn" data-stop="${pr._id}">Stop</button>
+      </div>`;
     li.querySelector("[data-stop]").addEventListener("click", async (e) => {
       e.target.disabled = true;
       await Api.stopPrescription(pr._id);
       loadPrescriptions();
     });
+    li.querySelector("[data-edit]").addEventListener("click", () => openEditForm(li, pr));
     ul.appendChild(li);
   }
+}
+
+/** Inline editor for an active prescription. Exercise name/type is fixed; everything else is editable. */
+function openEditForm(li, pr) {
+  if (li.querySelector(".pr-edit")) return;
+  const ex = exercises.find((e) => e.key === pr.exerciseKey);
+  const restAngle = pr.angleOverrides?.restAngle ?? ex?.restAngle ?? 0;
+  const targetAngle = pr.angleOverrides?.targetAngle ?? ex?.targetAngle ?? 0;
+  const currentRange = Math.abs(targetAngle - restAngle);
+  const opt = (v, label, cur) => `<option value="${v}"${String(cur) === String(v) ? " selected" : ""}>${label}</option>`;
+  const freqOpts = [1, 2, 3, 4, 5, 6, 7].map((n) => opt(n, n === 7 ? "Every day (7 days)" : `${n} day${n > 1 ? "s" : ""} / week`, pr.daysPerWeek ?? 3)).join("");
+  const tempoOpts = Object.values(TEMPOS).map((t) => opt(t.key, t.name, pr.tempo ?? DEFAULT_TEMPO)).join("");
+
+  const form = document.createElement("form");
+  form.className = "prescribe-form pr-edit";
+  form.innerHTML = `
+    <div class="wide"><b>Editing ${esc(pr.exerciseName)}</b> <span class="muted small">(exercise can't be changed; stop it and prescribe a new one instead)</span></div>
+    <label>Sets <input name="sets" type="number" min="1" max="20" value="${pr.sets}" required /></label>
+    <label>Reps per set <input name="reps" type="number" min="1" max="100" value="${pr.reps}" required /></label>
+    <label>Hold (s) <input name="holdSeconds" type="number" min="0" max="60" value="${pr.holdSeconds ?? 0}" /></label>
+    <label>Rest between sets (s) <input name="restSeconds" type="number" min="0" max="600" value="${pr.restSeconds ?? 60}" /></label>
+    <label>Duration (weeks) <input name="durationWeeks" type="number" min="1" max="52" value="${pr.durationWeeks ?? 4}" required /></label>
+    <label>Target frequency <select name="daysPerWeek">${freqOpts}</select></label>
+    <label>Rep tempo <select name="tempo">${tempoOpts}</select><span class="muted small" data-tempo-hint></span></label>
+    <label>Reach range ° <input name="range" type="number" min="1" max="180" value="${currentRange}" />
+      <span class="muted small">rest ${restAngle}° → target <span data-target>${targetAngle}</span>°</span></label>
+    <label class="wide">Timeline Phase / Stage <input name="timelinePhase" maxlength="100" value="${esc(pr.timelinePhase ?? "")}" /></label>
+    <label class="wide">Notes for the patient <input name="notes" maxlength="500" value="${esc(pr.notes ?? "")}" /></label>
+    <div class="wide form-actions">
+      <button type="submit">Save changes</button>
+      <button type="button" class="small-btn" data-cancel>Cancel</button>
+      <span class="muted" data-status></span>
+    </div>`;
+
+  const f = form.elements;
+  const direction = Math.sign((ex?.targetAngle ?? targetAngle) - restAngle) || 1;
+  const computeTarget = () => {
+    const range = Number(f.range.value);
+    if (!Number.isFinite(range) || range <= 0) return null;
+    return Math.max(0, Math.min(180, Math.round(restAngle + direction * range)));
+  };
+  const syncHints = () => {
+    form.querySelector("[data-tempo-hint]").textContent = tempoSummary(f.tempo.value);
+    form.querySelector("[data-target]").textContent = computeTarget() ?? targetAngle;
+  };
+  f.tempo.addEventListener("change", syncHints);
+  f.range.addEventListener("input", syncHints);
+  syncHints();
+
+  form.querySelector("[data-cancel]").addEventListener("click", () => form.remove());
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const status = form.querySelector("[data-status]");
+    const btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    status.textContent = "Saving…";
+    try {
+      const target = computeTarget();
+      await Api.updatePrescription(pr._id, {
+        sets: f.sets.value,
+        reps: f.reps.value,
+        holdSeconds: f.holdSeconds.value,
+        restSeconds: f.restSeconds.value,
+        durationWeeks: f.durationWeeks.value,
+        daysPerWeek: f.daysPerWeek.value,
+        tempo: f.tempo.value,
+        timelinePhase: f.timelinePhase.value,
+        notes: f.notes.value,
+        angleOverrides: target == null ? null : { restAngle, targetAngle: target },
+      });
+      await loadPrescriptions();
+    } catch (err) {
+      status.textContent = `Error: ${err.message}`;
+      btn.disabled = false;
+    }
+  });
+
+  li.appendChild(form);
+  f.sets.focus();
 }
 
 $("prescribe-form").addEventListener("submit", async (e) => {

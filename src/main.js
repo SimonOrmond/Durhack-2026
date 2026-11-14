@@ -64,9 +64,64 @@ let restRemainingMs = 0;  // remaining rest while paused
 let restTicker = null;
 const DEFAULT_REST_S = 60;
 
+let sessions = [];             // recent sessions (summaries) for this patient
+
+/** Monday 00:00 of the current week. */
+function weekStart(now = new Date()) {
+  const dow = (now.getDay() + 6) % 7; // 0 = Mon
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - dow);
+}
+
+/** Sessions recorded against a prescription. */
+function sessionsFor(pr) {
+  return sessions.filter((s) => s.prescriptionId && String(s.prescriptionId) === String(pr._id));
+}
+
+/**
+ * This week's progress for one prescription. A day counts once it has a fully completed
+ * session (all prescribed sets); days with only an incomplete session are reported separately.
+ */
+function weekProgress(pr) {
+  const mon = weekStart();
+  const todayK = dateKey(new Date());
+  const doneDays = new Set();
+  const partialDays = new Set();
+  for (const s of sessionsFor(pr)) {
+    const d = new Date(s.startedAt);
+    if (d < mon) continue;
+    (s.completedEarly ? partialDays : doneDays).add(dateKey(d));
+  }
+  for (const k of doneDays) partialDays.delete(k);
+  const target = pr.daysPerWeek ?? 3;
+  const done = doneDays.size;
+  const doneToday = doneDays.has(todayK);
+  const daysLeftInWeek = 7 - ((new Date().getDay() + 6) % 7); // including today
+  return {
+    target,
+    done,
+    doneDays,
+    partialDays,
+    doneToday,
+    weekMet: done >= target,
+    outstanding: !doneToday && done < target,
+    behind: target - done > daysLeftInWeek,
+  };
+}
+
+function statusLabel(wp) {
+  if (wp.doneToday) return { text: "✓ Done today", cls: "done" };
+  if (wp.weekMet) return { text: "✓ Week target met", cls: "done" };
+  const left = wp.target - wp.done;
+  return { text: `To do · ${left} more day${left === 1 ? "" : "s"} this week`, cls: "todo" };
+}
+
+/** Outstanding prescriptions first, then ones already done today / for the week. */
+function sortedPlan() {
+  return [...plan].sort((a, b) => Number(!weekProgress(a).outstanding) - Number(!weekProgress(b).outstanding));
+}
+
 async function loadPlan() {
   const el = $("plan");
-  let sessions = [];
   try {
     if (user.role === "patient") {
       [plan, sessions] = await Promise.all([
@@ -80,36 +135,39 @@ async function loadPlan() {
     el.innerHTML = `<div class="form-error">${err.message}</div>`;
     return;
   }
+  renderDashboard();
+  renderWeeklyRx();
   if (!plan.length) {
-    el.innerHTML = `<div class="muted small">${user.role === "patient" ? "Nothing prescribed yet. Use Free play below." : "Signed in as a physio: use Free play to try exercises."}</div>`;
+    el.innerHTML = `<div class="muted small">${user.role === "patient" ? "Nothing prescribed yet. Use Free play above." : "Signed in as a physio: use Free play to try exercises."}</div>`;
     renderPatientTimeline([], sessions);
     return;
   }
   el.innerHTML = "";
-  for (const pr of plan) {
+  for (const pr of sortedPlan()) {
+    const wp = weekProgress(pr);
+    const st = statusLabel(wp);
     const card = document.createElement("div");
-    card.className = "plan-card";
+    card.className = `plan-card${wp.outstanding ? "" : " done"}${activePrescription?._id === pr._id ? " active" : ""}`;
     card.dataset.id = pr._id;
     const ov = pr.angleOverrides?.targetAngle ? ` · target ${pr.angleOverrides.targetAngle}°` : "";
     const rest = pr.sets > 1 ? ` · rest ${pr.restSeconds ?? DEFAULT_REST_S}s` : "";
-    const weeks = pr.durationWeeks ?? 4;
-    const freq = pr.daysPerWeek ?? 3;
     const phaseTag = pr.timelinePhase ? `<span class="timeline-tag">${esc(pr.timelinePhase)}</span>` : "";
     card.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:start;gap:6px">
         <b>${esc(pr.exerciseName)}</b>
-        <span class="timeline-badge">${weeks} wks · ${freq}d/wk</span>
+        <span class="timeline-badge">${wp.done}/${wp.target} this week</span>
       </div>
       ${phaseTag ? `<div style="margin:2px 0">${phaseTag}</div>` : ""}
       <span class="muted">${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${rest} · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo${ov}</span>
+      <span class="task-status ${st.cls}">${st.text}</span>
       ${pr.notes ? `<span class="note">“${esc(pr.notes)}”</span>` : ""}`;
     card.addEventListener("click", () => applyPrescription(pr));
     el.appendChild(card);
   }
 
-  // Pre-select first prescription if none active yet
+  // Pre-select the first outstanding prescription if none is active yet
   if (plan.length && !activePrescription) {
-    const firstPr = plan[0];
+    const firstPr = sortedPlan()[0];
     if (firstPr.exerciseKey !== "curl" && game.mode === "runner") {
       game.setMode("glider");
       if (gameModeSelect) gameModeSelect.value = "glider";
@@ -137,6 +195,107 @@ async function loadPlan() {
 
   renderPatientTimeline(plan, sessions);
 }
+
+/** Open the Exercise page with a prescription loaded. */
+function goExercise(pr) {
+  location.hash = "#exercise";
+  if (pr && (activePrescription?._id !== pr._id || setState === "done")) applyPrescription(pr);
+}
+
+// ---- Dashboard: today's tasks + headline numbers ----
+function renderDashboard() {
+  const now = new Date();
+  const hour = now.getHours();
+  const first = String(user.name ?? "").split(" ")[0];
+  $("dash-greeting").textContent = `${hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"}${first ? `, ${first}` : ""}`;
+  $("dash-date").textContent = now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+
+  const wps = plan.map((pr) => weekProgress(pr));
+  const dueToday = wps.filter((wp) => wp.outstanding).length;
+  const doneToday = wps.filter((wp) => wp.doneToday).length;
+  const weekDone = wps.reduce((n, wp) => n + Math.min(wp.done, wp.target), 0);
+  const weekTarget = wps.reduce((n, wp) => n + wp.target, 0);
+  const totalReps = sessions.reduce((n, s) => n + (s.summary?.repCount ?? 0), 0);
+
+  $("dash-today").textContent = plan.length ? (dueToday ? `${dueToday} to do` : "All done ✓") : "—";
+  $("dash-today-sub").textContent = plan.length ? `${doneToday} completed today` : "nothing prescribed";
+  $("dash-week").textContent = weekTarget ? `${Math.round((weekDone / weekTarget) * 100)}%` : "—";
+  $("dash-week-sub").textContent = weekTarget ? `${weekDone} of ${weekTarget} exercise days` : "";
+  $("dash-reps").textContent = totalReps;
+
+  const ul = $("dash-tasks");
+  ul.innerHTML = "";
+  if (!plan.length) {
+    ul.innerHTML = `<li class="muted small">${user.role === "patient" ? "Nothing prescribed yet. You can still try exercises on the Exercise page." : "Signed in as a physio."}</li>`;
+    return;
+  }
+  for (const pr of sortedPlan()) {
+    const wp = weekProgress(pr);
+    const st = statusLabel(wp);
+    const li = document.createElement("li");
+    li.className = `task-row${wp.outstanding ? "" : " done"}`;
+    li.innerHTML = `
+      <div class="task-check">${wp.outstanding ? "○" : "✓"}</div>
+      <div class="task-body">
+        <b>${esc(pr.exerciseName)}</b>
+        <div class="muted small">${pr.sets} sets × ${pr.reps} reps · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo · ${wp.done}/${wp.target} days this week</div>
+        <span class="task-status ${st.cls}">${st.text}</span>
+      </div>
+      <button class="${wp.outstanding ? "btn-start" : ""}">${wp.outstanding ? "Start" : "Do again"}</button>`;
+    li.querySelector("button").addEventListener("click", () => goExercise(pr));
+    ul.appendChild(li);
+  }
+}
+
+// ---- Progress: per-prescription weekly completion (e.g. 2 of 3 days) ----
+function renderWeeklyRx() {
+  const el = $("weekly-rx");
+  if (!el) return;
+  if (!plan.length) {
+    el.innerHTML = `<div class="muted small">No active prescriptions.</div>`;
+    return;
+  }
+  const mon = weekStart();
+  const todayK = dateKey(new Date());
+  const dayNames = ["M", "T", "W", "T", "F", "S", "S"];
+  el.innerHTML = "";
+  for (const pr of plan) {
+    const wp = weekProgress(pr);
+    const pct = Math.min(100, Math.round((wp.done / Math.max(1, wp.target)) * 100));
+    const dots = dayNames
+      .map((n, i) => {
+        const k = dateKey(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i));
+        const cls = wp.doneDays.has(k) ? "done" : wp.partialDays.has(k) ? "partial" : k === todayK ? "today" : "";
+        return `<span class="rx-dot ${cls}" title="${k}">${n}</span>`;
+      })
+      .join("");
+    const row = document.createElement("div");
+    row.className = "rx-row";
+    row.innerHTML = `
+      <div class="rx-head">
+        <b>${esc(pr.exerciseName)}</b>
+        <span class="${wp.weekMet ? "rx-met" : wp.behind ? "rx-behind" : "muted small"}">${wp.done} of ${wp.target} days${wp.weekMet ? " ✓" : wp.behind ? " · behind" : ""}</span>
+      </div>
+      <div class="timeline-bar-wrap"><div class="timeline-bar-fill" style="width:${pct}%"></div></div>
+      <div class="rx-dots">${dots}</div>`;
+    el.appendChild(row);
+  }
+}
+
+// ---- Views (Dashboard / Exercise / Progress) via the URL hash ----
+const VIEWS = user.role === "patient" ? ["dashboard", "exercise", "progress"] : ["exercise"];
+for (const a of document.querySelectorAll("#view-tabs a")) a.hidden = !VIEWS.includes(a.dataset.view);
+function showView() {
+  const want = location.hash.slice(1);
+  const view = VIEWS.includes(want) ? want : VIEWS[0];
+  for (const sec of document.querySelectorAll("section.view")) sec.hidden = sec.dataset.view !== view;
+  for (const a of document.querySelectorAll("#view-tabs a")) a.classList.toggle("active", a.dataset.view === view);
+  document.body.dataset.view = view;
+  // Leaving the Exercise page mid-set: pause so reps can't count off-screen.
+  if (view !== "exercise" && loop && !loop.paused) setPaused(true);
+  window.scrollTo(0, 0);
+}
+window.addEventListener("hashchange", showView);
 
 function dateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -220,7 +379,7 @@ function renderPatientTimeline(planList, sessionsList) {
   const timelineGrid = $("timeline-cards-grid");
   if (timelineGrid) {
     if (!planList.length) {
-      timelineGrid.innerHTML = `<div class="muted small">No active prescribed programme yet. Use Free play above.</div>`;
+      timelineGrid.innerHTML = `<div class="muted small">No active prescribed programme yet.</div>`;
     } else {
       timelineGrid.innerHTML = "";
       for (const pr of planList) {
@@ -263,7 +422,7 @@ function renderPatientTimeline(planList, sessionsList) {
             <span>Ends ${end.toLocaleDateString([], { day: "numeric", month: "short" })}</span>
           </div>
         `;
-        item.addEventListener("click", () => applyPrescription(pr));
+        item.addEventListener("click", () => goExercise(pr));
         timelineGrid.appendChild(item);
       }
     }
@@ -277,7 +436,7 @@ function renderPatientTimeline(planList, sessionsList) {
     if (historyCount) historyCount.textContent = `${sortedDays.length} workout days logged`;
 
     if (!sortedDays.length) {
-      historyList.innerHTML = `<li class="muted small">No workout days recorded yet. Complete a set above to log your first day!</li>`;
+      historyList.innerHTML = `<li class="muted small">No workout days recorded yet. Complete an exercise to log your first day!</li>`;
     } else {
       historyList.innerHTML = "";
       for (const [k, dayObj] of sortedDays.slice(0, 10)) {
@@ -1227,6 +1386,8 @@ if (!$("start").textContent.startsWith("Start ")) {
 }
 setStatus("Ready. Choose an exercise or click Start exercise.");
 loadMediaPipe(() => {}).catch(() => {});
+
+showView();
 
 // Debug handle: lets tests and teammates poke the pipeline from the console, e.g.
 // __physio.counter.dispatchEvent(new CustomEvent("rep", { detail: { count: 1, rom: 0.9, durationMs: 1200, holdMs: 0 } }))
