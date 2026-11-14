@@ -54,13 +54,24 @@
         <label class="wide">Timeline Phase / Stage
           <input id="p-phase" maxlength="100" placeholder="e.g. Stage 1 (Weeks 1–2) or Rehabilitation Phase 1" />
         </label>
-        <details class="wide">
-          <summary>Adjust target angles for this patient</summary>
-          <div class="angle-row">
-            <label>Rest angle ° <input id="p-rest" type="number" min="0" max="180" /></label>
-            <label>Target angle ° <input id="p-target" type="number" min="0" max="180" /></label>
-            <div class="muted small" id="p-defaults"></div>
+        <details class="wide" id="angle-details">
+          <summary>Adjust target range for this patient</summary>
+          <div class="angle-row" style="align-items:flex-start;gap:12px">
+            <label style="flex:1">
+              Rest angle (fixed for this exercise)
+              <div id="p-rest-display" class="angle-fixed-display">â°</div>
+            </label>
+            <div class="angle-arrow">â</div>
+            <label style="flex:1.6">
+              How far should the patient reach? °
+              <input id="p-range" type="number" min="1" max="180" placeholder="e.g. 60" />
+            </label>
+            <label style="flex:1">
+              Resulting target angle
+              <div id="p-target-display" class="angle-fixed-display accent">â°</div>
+            </label>
           </div>
+          <div class="muted small" id="p-defaults" style="margin-top:6px"></div>
         </details>
         <label class="wide">Notes for the patient <input id="p-notes" maxlength="500" placeholder="e.g. Stop if sharp pain. Go slowly on the way down." /></label>
         <div class="wide form-actions">

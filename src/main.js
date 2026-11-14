@@ -104,11 +104,6 @@ async function loadPlan() {
     card.addEventListener("click", () => applyPrescription(pr));
     el.appendChild(card);
   }
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-=======
-=======
->>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
 
   // Pre-select first prescription if none active yet
   if (plan.length && !activePrescription) {
@@ -191,15 +186,10 @@ function renderPatientTimeline(planList, sessionsList) {
 
       const col = document.createElement("div");
       col.className = `day-col${isDone ? " completed" : ""}${isToday ? " today" : ""}`;
-<<<<<<< HEAD
       const daySessions = isDone ? sessionsByDay.get(k).sessions : [];
       const allIncomplete = isDone && daySessions.length > 0 && daySessions.every((s) => s.completedEarly);
       const doneIcon = isDone ? (allIncomplete ? "⚠" : "✓") : isToday ? "Today" : isFuture ? "·" : "—";
       const checkClass = isDone ? (allIncomplete ? "day-check incomplete" : "day-check") : "day-check pending";
-=======
-      const doneIcon = isDone ? "✓" : isToday ? "Today" : isFuture ? "·" : "—";
-      const checkClass = isDone ? "day-check" : "day-check pending";
->>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
 
       col.innerHTML = `
         <div class="day-name">${dayNames[i]}</div>
@@ -313,7 +303,6 @@ function renderPatientTimeline(planList, sessionsList) {
           .join(" · ");
         const avgRomStr = romCount ? ` · Avg ROM ${Math.round((romSum / romCount) * 100)}%` : "";
 
-<<<<<<< HEAD
         // Determine whether any sessions that day were completed early
         const anyIncomplete = dayObj.sessions.some((s) => s.completedEarly);
         const allDayIncomplete = dayObj.sessions.length > 0 && dayObj.sessions.every((s) => s.completedEarly);
@@ -332,31 +321,20 @@ function renderPatientTimeline(planList, sessionsList) {
           ? `<div class="day-detail warn-text" style="color:var(--warn);font-size:11px;margin-top:2px">Incomplete: ${esc(incompleteDetail)}</div>`
           : ``;
 
-=======
->>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
         const li = document.createElement("li");
         li.className = "completed-day-row";
         li.innerHTML = `
           <div>
             <div class="day-title">${esc(dateTitle)} <span class="muted small" style="font-weight:400;margin-left:4px">${d.toLocaleDateString([], { day: "numeric", month: "short" })}</span></div>
             <div class="day-detail">${esc(exSummaryStr)}${avgRomStr}</div>
-<<<<<<< HEAD
             ${incompleteNote}
           </div>
           ${dayBadge}
-=======
-          </div>
-          <span class="day-badge">✓ ${dayReps} reps</span>
->>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
         `;
         historyList.appendChild(li);
       }
     }
   }
-<<<<<<< HEAD
->>>>>>> Stashed changes
-=======
->>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 

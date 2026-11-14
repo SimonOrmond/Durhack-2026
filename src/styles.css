@@ -219,8 +219,29 @@ code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size:
 .prescribe-form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
 .prescribe-form .wide { grid-column: 1 / -1; }
 .prescribe-form summary { cursor: pointer; font-size: 13px; color: var(--muted); }
-.angle-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
-.angle-row .small { grid-column: 1 / -1; }
+.angle-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 8px; }
+.angle-row .small { flex: 0 0 100%; }
+.angle-fixed-display {
+  margin-top: 6px;
+  padding: 7px 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: .5px;
+  user-select: none;
+}
+.angle-fixed-display.accent { color: var(--accent); background: rgba(79,209,160,.07); border-color: rgba(79,209,160,.3); }
+.angle-arrow {
+  align-self: flex-end;
+  padding-bottom: 10px;
+  font-size: 20px;
+  color: var(--muted);
+  line-height: 1;
+  flex-shrink: 0;
+}
 .form-actions { display: flex; gap: 12px; align-items: center; }
 .form-actions button { background: var(--accent); color: #0f1218; border: none; font-weight: 600; }
 .prescription-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
@@ -277,11 +298,6 @@ table.rep-table tbody tr { cursor: default; }
 .sp-rest { color: var(--warn); margin-left: 6px; font-variant-numeric: tabular-nums; }
 .sp-actions { display: flex; gap: 6px; }
 .resting .set-progress { border-color: var(--warn); }
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-=======
-=======
->>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
 
 /* ---- timeline & activity tracking ---- */
 .timeline-section { display: grid; gap: 14px; margin-top: 10px; }
@@ -311,7 +327,6 @@ table.rep-table tbody tr { cursor: default; }
 .completed-day-row .day-title { font-weight: 600; color: var(--text); }
 .completed-day-row .day-detail { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .completed-day-row .day-badge { font-size: 11px; font-weight: 600; color: var(--accent); background: rgba(79,209,160,.12); padding: 3px 8px; border-radius: 10px; white-space: nowrap; }
-<<<<<<< HEAD
 .completed-day-row .day-badge.incomplete { color: var(--warn, #f2b84b); background: rgba(242,184,75,.12); border: 1px solid rgba(242,184,75,.3); }
 .completed-day-row .day-badge.partial { color: var(--warn, #f2b84b); background: rgba(242,184,75,.08); border: 1px solid rgba(242,184,75,.2); }
 .day-col.completed.incomplete .day-check { color: var(--warn, #f2b84b) !important; }
@@ -321,13 +336,7 @@ table.rep-table tbody tr { cursor: default; }
 .session-incomplete td:first-child { position: relative; }
 .incomplete-tag { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700; color: var(--warn, #f2b84b); background: rgba(242,184,75,.12); border: 1px solid rgba(242,184,75,.3); border-radius: 6px; padding: 1px 5px; vertical-align: middle; white-space: nowrap; }
 tr.session-incomplete { background: rgba(242,184,75,.04) !important; }
-=======
->>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
 @media (max-width: 600px) {
   .week-grid { grid-template-columns: repeat(4, 1fr); }
   .day-num { font-size: 14px; }
 }
-<<<<<<< HEAD
->>>>>>> Stashed changes
-=======
->>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363

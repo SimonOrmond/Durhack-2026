@@ -48,12 +48,30 @@ async function loadExercises() {
   sel.addEventListener("change", fillAngleDefaults);
   fillAngleDefaults();
 }
+// Track the currently selected exercise's default angles so we can reconstruct targetAngle from range
+let _exRestAngle = 0;
+let _exTargetAngle = 0;
+
 function fillAngleDefaults() {
   const ex = exercises.find((e) => e.key === $("p-exercise").value);
   if (!ex) return;
-  $("p-rest").value = ex.restAngle;
-  $("p-target").value = ex.targetAngle;
-  $("p-defaults").textContent = `Defaults: rest ${ex.restAngle}°, target ${ex.targetAngle}°. Lower the target for a patient with limited range.`;
+  _exRestAngle = ex.restAngle;
+  _exTargetAngle = ex.targetAngle;
+
+  // Show fixed rest angle
+  $("p-rest-display").textContent = `${ex.restAngle}°`;
+
+  // Default range = abs difference between rest and target
+  const defaultRange = Math.abs(ex.targetAngle - ex.restAngle);
+  $("p-range").value = defaultRange;
+  $("p-range").max = Math.min(180, defaultRange + 30); // soft cap slightly above default
+
+  // Update the computed target display
+  updateTargetDisplay();
+
+  $("p-defaults").textContent =
+    `Exercise default: rest ${ex.restAngle}°, target ${ex.targetAngle}° (${defaultRange}° range). ` +
+    `Reduce the range for a patient with limited movement; increase it as they improve.`;
 
   // Auto-suggest timeline duration and phase based on stage metadata
   if (ex.name.includes("Stage 1")) {
@@ -70,6 +88,22 @@ function fillAngleDefaults() {
     $("p-phase").value = `${ex.group || "Rehab"} Phase (4 weeks)`;
   }
 }
+
+/** Recompute and display the resulting target angle whenever the range input changes. */
+function updateTargetDisplay() {
+  const range = Number($("p-range").value);
+  if (!Number.isFinite(range) || range <= 0) {
+    $("p-target-display").textContent = "—°";
+    return;
+  }
+  // Direction: does the exercise angle go up or down from rest to target?
+  const direction = Math.sign(_exTargetAngle - _exRestAngle) || 1;
+  const computed = Math.round(_exRestAngle + direction * range);
+  const clamped = Math.max(0, Math.min(180, computed));
+  $("p-target-display").textContent = `${clamped}°`;
+}
+
+$("p-range").addEventListener("input", updateTargetDisplay);
 
 // ---- patients ---------------------------------------------------------------
 async function loadPatients() {
@@ -106,7 +140,17 @@ async function loadPrescriptions() {
   for (const pr of list) {
     const li = document.createElement("li");
     const d = (v) => (v == null ? "default" : `${v}°`);
-    const ov = pr.angleOverrides ? ` · angles ${d(pr.angleOverrides.restAngle)} → ${d(pr.angleOverrides.targetAngle)}` : "";
+    const ov = pr.angleOverrides
+      ? (() => {
+          const rest = pr.angleOverrides.restAngle;
+          const target = pr.angleOverrides.targetAngle;
+          if (rest != null && target != null) {
+            const range = Math.abs(target - rest);
+            return ` · range ${range}° (rest ${rest}° → target ${target}°)`;
+          }
+          return ` · target ${d(target)}`;
+        })()
+      : "";
     const weeks = pr.durationWeeks ?? 4;
     const freq = pr.daysPerWeek ?? 3;
     const phase = pr.timelinePhase ? `<span class="timeline-tag">${esc(pr.timelinePhase)}</span>` : "";
@@ -159,7 +203,14 @@ $("prescribe-form").addEventListener("submit", async (e) => {
       durationWeeks: $("p-weeks").value,
       daysPerWeek: $("p-frequency").value,
       timelinePhase: $("p-phase").value,
-      angleOverrides: { restAngle: $("p-rest").value, targetAngle: $("p-target").value },
+      angleOverrides: (() => {
+        const range = Number($("p-range").value);
+        if (!Number.isFinite(range) || range <= 0) return null;
+        const direction = Math.sign(_exTargetAngle - _exRestAngle) || 1;
+        const computedTarget = Math.max(0, Math.min(180, Math.round(_exRestAngle + direction * range)));
+        // Always send restAngle (fixed) + the computed targetAngle
+        return { restAngle: _exRestAngle, targetAngle: computedTarget };
+      })(),
       notes: $("p-notes").value,
     });
     $("p-status").textContent = `Sent to ${selected.name} ✓`;
