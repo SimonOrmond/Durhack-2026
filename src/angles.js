@@ -1,4 +1,4 @@
-// Stage 2: joint angles from landmarks, plus smoothing.
+// Stage 2: joint angles from landmarks, plus adaptive low-latency smoothing.
 
 // MediaPipe Pose landmark indices (33 points).
 export const LM = {
@@ -11,13 +11,20 @@ export const LM = {
   L_ANKLE: 27, R_ANKLE: 28,
 };
 
-/** Angle at vertex b formed by a-b-c, in degrees (0..180). Uses x/y only. */
-export function angle2D(a, b, c, aspect = 1) {
+/**
+ * Angle at vertex b formed by a-b-c, in degrees (0..180).
+ * foreshortenRatio (0..1): when > 0, compensates for 2D perspective foreshortening when the
+ * distal limb segment (b->c, e.g. forearm in a front-facing bicep curl) points toward the camera.
+ */
+export function angle2D(a, b, c, aspect = 1, foreshortenRatio = 0) {
   // aspect corrects for non-square normalized coords (x in 0..1 of width, y in 0..1 of height).
   const abx = (a.x - b.x) * aspect, aby = a.y - b.y;
   const cbx = (c.x - b.x) * aspect, cby = c.y - b.y;
   const dot = abx * cbx + aby * cby;
-  const mag = Math.hypot(abx, aby) * Math.hypot(cbx, cby);
+  const lenAB = Math.hypot(abx, aby);
+  const lenCB = Math.hypot(cbx, cby);
+  const effectiveCB = foreshortenRatio > 0 ? Math.max(lenCB, lenAB * foreshortenRatio) : lenCB;
+  const mag = lenAB * effectiveCB;
   if (mag === 0) return 0;
   return (Math.acos(Math.min(1, Math.max(-1, dot / mag))) * 180) / Math.PI;
 }
@@ -38,18 +45,37 @@ export function tiltFromVertical(a, b, aspect = 1) {
   return Math.abs((Math.atan2(dx, dy) * 180) / Math.PI);
 }
 
-/** Pick the side (L or R) whose landmarks are more visible. */
-export function pickSide(landmarks, leftIdx, rightIdx) {
-  const vis = (idxs) => idxs.reduce((s, i) => s + (landmarks[i]?.visibility ?? 0), 0) / idxs.length;
-  return vis(leftIdx) >= vis(rightIdx) ? "L" : "R";
+/** Average visibility (0..1) of a list of landmark indices. */
+export function sideVisibility(landmarks, idxs) {
+  return idxs.reduce((s, i) => s + (landmarks[i]?.visibility ?? 0), 0) / idxs.length;
 }
 
-/** Exponential moving average smoother. alpha closer to 1 = less smoothing. */
+/** Pick the side (L or R) whose landmarks are more visible. */
+export function pickSide(landmarks, leftIdx, rightIdx) {
+  return sideVisibility(landmarks, leftIdx) >= sideVisibility(landmarks, rightIdx) ? "L" : "R";
+}
+
+/**
+ * Adaptive velocity-aware smoother (inspired by 1-Euro filtering).
+ * Smooths out small jitter when stationary, but ramps up alpha when the joint is moving
+ * purposefully so on-screen gauges and jumps respond immediately with minimal lag.
+ */
 export class Smoother {
-  constructor(alpha = 0.35) { this.alpha = alpha; this.value = null; }
+  constructor(alpha = 0.35) {
+    this.alpha = alpha;
+    this.value = null;
+  }
   push(x) {
-    this.value = this.value === null ? x : this.value + this.alpha * (x - this.value);
+    if (this.value === null) {
+      this.value = x;
+      return x;
+    }
+    const delta = Math.abs(x - this.value);
+    const adaptiveAlpha = Math.min(0.85, Math.max(this.alpha * 0.75, this.alpha + (delta / 9) * 0.5));
+    this.value = this.value + adaptiveAlpha * (x - this.value);
     return this.value;
   }
-  reset() { this.value = null; }
+  reset() {
+    this.value = null;
+  }
 }

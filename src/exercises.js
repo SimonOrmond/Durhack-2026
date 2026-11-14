@@ -38,32 +38,16 @@ const elbowStraight = (minDeg, cue) => ({
 });
 
 export const EXERCISES = {
-  squat: {
-    name: "Squat / sit-to-stand",
-    group: "Knee / hip",
-    concentric: "toRest", // standing back up is the concentric phase
-    instructions: "Stand side-on to the camera, whole body in frame. Bend knees to ~90 degrees and stand back up.",
-    joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE), side(s, LM.L_ANKLE, LM.R_ANKLE)],
-    restAngle: 170,
-    targetAngle: 95,
-    formChecks: [
-      {
-        test: ({ lm, s, aspect }) => {
-          const sh = lm[side(s, LM.L_SHOULDER, LM.R_SHOULDER)];
-          const hip = lm[side(s, LM.L_HIP, LM.R_HIP)];
-          return tiltFromVertical(hip, sh, aspect) > 45 ? "Keep your chest up" : null;
-        },
-      },
-    ],
-  },
-
+  // --- Upper-body exercises first (default in UI) -----------------------------
   curl: {
     name: "Elbow flexion (bicep curl)",
     group: "Elbow",
-    instructions: "Face the camera, arm by your side. Bend the elbow fully, then straighten.",
+    concentric: "toTarget", // curling the hand up is the upward/lifting phase
+    foreshortenRatio: 0.88, // compensates when forearm curls straight toward the webcam
+    instructions: "Face the camera, arm by your side. Curl your hand up towards your shoulder to jump, then lower with control.",
     joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW), side(s, LM.L_WRIST, LM.R_WRIST)],
-    restAngle: 160,
-    targetAngle: 50,
+    restAngle: 155,
+    targetAngle: 55,
     formChecks: [
       {
         test: ({ lm, s, aspect }) => {
@@ -78,32 +62,25 @@ export const EXERCISES = {
   shoulderRaise: {
     name: "Shoulder abduction (arm raise)",
     group: "Shoulder",
-    instructions: "Face the camera. Raise one arm out to the side and up above shoulder height, then lower.",
+    concentric: "toTarget",
+    instructions: "Face the camera. Raise one arm out to the side up to shoulder height to jump, then lower slowly.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW)],
     restAngle: 20,
-    targetAngle: 140,
-    formChecks: [trunkUpright(15, "Keep your torso upright")],
+    targetAngle: 105,
+    formChecks: [trunkUpright(16, "Keep your torso upright")],
   },
 
-  kneeExtension: {
-    name: "Seated knee extension",
-    group: "Knee",
-    instructions: "Sit side-on to the camera. Straighten the knee fully, hold briefly, then lower.",
-    joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE), side(s, LM.L_ANKLE, LM.R_ANKLE)],
-    restAngle: 95,
-    targetAngle: 165,
-    formChecks: [],
-  },
-  // --- Shoulder rehab (frozen shoulder, post-op ROM programmes) ---------------
   shoulderFlexion: {
     name: "Shoulder flexion (forward arm raise)",
     group: "Shoulder",
-    instructions: "Stand side-on to the camera, arm straight by your side. Raise the arm forwards and up towards the ceiling, then lower slowly.",
+    concentric: "toTarget",
+    foreshortenRatio: 0.9,
+    instructions: "Stand side-on or angled to the camera, arm straight by your side. Raise the arm forwards and up to jump, then lower slowly.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_WRIST, LM.R_WRIST)],
-    restAngle: 15,
-    targetAngle: 150,
+    restAngle: 20,
+    targetAngle: 125,
     formChecks: [
-      elbowStraight(150, "Keep your arm straight"),
+      elbowStraight(140, "Keep your arm straight"),
       {
         // leaning back to get the arm higher is the classic compensation
         test: ({ lm, s, aspect }) => {
@@ -115,27 +92,61 @@ export const EXERCISES = {
     ],
   },
 
+  // --- Lower-body & seated/lying rehab ----------------------------------------
+  squat: {
+    name: "Squat / sit-to-stand",
+    group: "Knee / hip",
+    concentric: "toRest", // squatting down loads the crouch; standing back up jumps
+    instructions: "Stand side-on to the camera, whole body in frame. Bend knees to crouch, then stand back up to jump.",
+    joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE), side(s, LM.L_ANKLE, LM.R_ANKLE)],
+    restAngle: 165,
+    targetAngle: 105,
+    formChecks: [
+      {
+        test: ({ lm, s, aspect }) => {
+          const sh = lm[side(s, LM.L_SHOULDER, LM.R_SHOULDER)];
+          const hip = lm[side(s, LM.L_HIP, LM.R_HIP)];
+          return tiltFromVertical(hip, sh, aspect) > 45 ? "Keep your chest up" : null;
+        },
+      },
+    ],
+  },
+
+  kneeExtension: {
+    name: "Seated knee extension",
+    group: "Knee",
+    concentric: "toTarget",
+    foreshortenRatio: 0.85,
+    instructions: "Sit side-on to the camera. Straighten the knee up to jump, hold briefly, then lower.",
+    joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE), side(s, LM.L_ANKLE, LM.R_ANKLE)],
+    restAngle: 95,
+    targetAngle: 158,
+    formChecks: [],
+  },
+
   // --- Hip rehab (hip OA, post hip replacement, gluteal strengthening) ---------
   hipAbduction: {
     name: "Standing hip abduction (leg out to side)",
     group: "Hip",
-    instructions: "Face the camera, hold a chair or wall for balance. Keeping the leg straight, lift it out to the side, then lower with control.",
+    concentric: "toTarget",
+    instructions: "Face the camera, hold a chair or wall for balance. Keeping the leg straight, lift it out to the side to jump, then lower with control.",
     joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_ANKLE, LM.R_ANKLE)],
-    restAngle: 175,
-    targetAngle: 145,
+    restAngle: 174,
+    targetAngle: 150,
     formChecks: [
-      trunkUpright(12, "Stay upright, don't lean away from the leg"),
-      kneeStraight(160, "Keep your leg straight"),
+      trunkUpright(14, "Stay upright, don't lean away from the leg"),
+      kneeStraight(150, "Keep your leg straight"),
     ],
   },
 
   gluteBridge: {
     name: "Glute bridge",
     group: "Hip / lower back",
-    instructions: "Lie on your back side-on to the camera, knees bent, feet flat. Squeeze your glutes and lift your hips until your body is a straight line, then lower.",
+    concentric: "toTarget",
+    instructions: "Lie on your back side-on to the camera, knees bent, feet flat. Lift your hips until your body is a straight line to jump, then lower.",
     joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE)],
     restAngle: 125,
-    targetAngle: 170,
+    targetAngle: 165,
     formChecks: [],
   },
 
@@ -143,20 +154,22 @@ export const EXERCISES = {
   straightLegRaise: {
     name: "Straight leg raise (lying)",
     group: "Knee",
-    instructions: "Lie on your back side-on to the camera. Tighten your thigh, keep the knee locked straight and lift the leg to about 45 degrees, then lower slowly.",
+    concentric: "toTarget",
+    instructions: "Lie on your back side-on to the camera. Tighten your thigh, keep the knee straight and lift the leg to ~45 degrees to jump, then lower slowly.",
     joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE)],
-    restAngle: 175,
-    targetAngle: 130,
-    formChecks: [kneeStraight(160, "Keep your knee locked straight")],
+    restAngle: 172,
+    targetAngle: 135,
+    formChecks: [kneeStraight(150, "Keep your knee locked straight")],
   },
 
   heelSlide: {
     name: "Heel slide (knee flexion)",
     group: "Knee",
-    instructions: "Lie on your back side-on to the camera, leg straight. Slide your heel towards your bottom to bend the knee as far as comfortable, then slide back.",
+    concentric: "toTarget",
+    instructions: "Lie on your back side-on to the camera, leg straight. Slide your heel in to bend the knee, then slide back out.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE), side(s, LM.L_ANKLE, LM.R_ANKLE)],
-    restAngle: 175,
-    targetAngle: 90,
+    restAngle: 170,
+    targetAngle: 95,
     formChecks: [],
   },
 };
@@ -177,7 +190,7 @@ export class RepCounter extends EventTarget {
    * enterTarget / exitTarget: hysteresis on 0..1 progress. A rep is counted on rest → target → rest.
    * plateauBand: how close to the peak (in progress units) still counts as "holding at the top".
    */
-  constructor({ enterTarget = 0.8, exitTarget = 0.15, minRepMs = 400, plateauBand = 0.06 } = {}) {
+  constructor({ enterTarget = 0.75, exitTarget = 0.22, minRepMs = 320, plateauBand = 0.06 } = {}) {
     super();
     this.enterTarget = enterTarget;
     this.exitTarget = exitTarget;
@@ -231,7 +244,7 @@ export class RepCounter extends EventTarget {
         this.reachTargetAt = tMs;
         this.maxProgress = p;
         this.peakAngle = angle;
-        this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase } }));
+        this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase, progress: p } }));
       }
     } else {
       this.samples.push([tMs, p]);

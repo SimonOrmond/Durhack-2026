@@ -7,7 +7,7 @@
 const CDN_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3";
 const WASM_URL = `${CDN_BASE}/wasm`;
 const MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
 
 let mpPromise = null;
 

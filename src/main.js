@@ -2,7 +2,7 @@
 //   camera -> PoseLandmarker -> joint angle -> smoothing -> RepCounter -> events -> UI + game
 
 import { createPoseTracker, startCamera, runDetectionLoop, loadMediaPipe } from "./pose.js";
-import { angle2D, pickSide, Smoother } from "./angles.js";
+import { angle2D, pickSide, sideVisibility, Smoother } from "./angles.js";
 import { EXERCISES, progressFromAngle, RepCounter, checkForm, splitPhases } from "./exercises.js";
 import { RunnerGame } from "./game.js";
 import { Api, requireUser, logout } from "./api.js";
@@ -102,6 +102,8 @@ async function applyPrescription(pr) {
   for (const c of $("plan").children) c.classList.toggle("active", c.dataset?.id === pr._id);
   stopRestTimer();
   resetCounters();
+  game.setConcentric(exercise.concentric);
+  game.setHoldTargetMs((pr.holdSeconds || 2) * 1000);
   recorder.start(exerciseKey, pr);
   $("set-progress").hidden = false;
   $("sp-exercise").textContent = pr.exerciseName;
@@ -121,6 +123,7 @@ function updateSetProgress() {
   $("sp-state").textContent = setState === "resting" ? "Resting" : setState === "done" ? "Complete" : "Go";
   $("skip-rest").hidden = setState !== "resting";
   document.body.classList.toggle("resting", setState === "resting");
+  game.setResting(setState === "resting" || setState === "done");
 }
 
 /** Begin the next set: fresh rep counter, reps count again. */
@@ -257,6 +260,7 @@ loadPlan();
 const counter = new RepCounter();
 const smoother = new Smoother(0.35);
 const game = new RunnerGame($("game"));
+game.setConcentric(exercise.concentric);
 
 let lastCue = null;
 let cueTimer = 0;
@@ -276,6 +280,7 @@ counter.addEventListener("rep", (e) => {
 });
 counter.addEventListener("phase", (e) => {
   $("phase").textContent = e.detail.phase === "active" ? "At target" : "Rest";
+  if (setState !== "resting" && setState !== "done") game.onPhase(e.detail);
 });
 counter.addEventListener("hold", (e) => game.onHold(e.detail));
 counter.addEventListener("progress", (e) => {
@@ -290,11 +295,16 @@ function flashCue(text, kind) {
   cueTimer = performance.now() + 1200;
 }
 
+let lockedSide = null;      // locks to L or R while a rep is underway so side doesn't flip mid-rep
+let lastTrackedSide = null; // tracks the last side fed into smoother so switching L<->R resets the filter
+
 function resetCounters() {
   if (loop?.paused) setPaused(false);
   counter.reset();
   smoother.reset();
   game.reset();
+  lockedSide = null;
+  lastTrackedSide = null;
   $("reps").textContent = "0";
   $("rom").textContent = "—";
   $("phase").textContent = "—";
@@ -328,6 +338,8 @@ exerciseSelect.addEventListener("change", async () => {
   exercise = EXERCISES[exerciseKey];
   $("instructions").textContent = exercise.instructions;
   resetCounters();
+  game.setConcentric(exercise.concentric);
+  game.setResting(false);
   recorder.start(exerciseKey, null); // free play is still recorded
 });
 recorder.start(exerciseKey, null);
@@ -349,15 +361,52 @@ function onFrame({ landmarks, timestampMs, fps }) {
   }
 
   const aspect = video.videoWidth / video.videoHeight;
-  const [ia, ib, ic] = exercise.joints("L");
+  const fsRatio = exercise.foreshortenRatio ?? 0;
+  const [la, lb, lc] = exercise.joints("L");
   const [ra, rb, rc] = exercise.joints("R");
-  const s = pickSide(landmarks, [ia, ib, ic], [ra, rb, rc]);
-  const [a, b, c] = exercise.joints(s);
+  const visL = sideVisibility(landmarks, [la, lb, lc]);
+  const visR = sideVisibility(landmarks, [ra, rb, rc]);
 
-  const rawAngle = angle2D(landmarks[a], landmarks[b], landmarks[c], aspect);
+  let s;
+  if (lockedSide && (lockedSide === "L" ? visL : visR) >= 0.4) {
+    s = lockedSide;
+  } else if (visL >= 0.5 && visR >= 0.5 && Math.abs(visL - visR) < 0.25) {
+    // Both sides are clearly in frame (e.g. facing camera): track whichever limb is actively moving!
+    const progL = progressFromAngle(exercise, angle2D(landmarks[la], landmarks[lb], landmarks[lc], aspect, fsRatio));
+    const progR = progressFromAngle(exercise, angle2D(landmarks[ra], landmarks[rb], landmarks[rc], aspect, fsRatio));
+    if (Math.abs(progL - progR) > 0.14) {
+      s = progL > progR ? "L" : "R";
+    } else {
+      s = lastTrackedSide ?? (visL >= visR ? "L" : "R");
+    }
+  } else {
+    s = pickSide(landmarks, [la, lb, lc], [ra, rb, rc]);
+  }
+
+  if (lastTrackedSide && s !== lastTrackedSide) {
+    smoother.reset(); // don't blend old side's angle when switching between left and right limb
+  }
+  lastTrackedSide = s;
+
+  const [a, b, c] = exercise.joints(s);
+  const activeVis = s === "L" ? visL : visR;
+  if (activeVis < 0.35) {
+    $("status").textContent = "Move into frame so the active joints are clearly visible.";
+    drawSetOverlay();
+    return;
+  }
+
+  const rawAngle = angle2D(landmarks[a], landmarks[b], landmarks[c], aspect, fsRatio);
   const angle = smoother.push(rawAngle);
   const progress = progressFromAngle(exercise, angle);
   counter.update(progress, timestampMs, angle);
+
+  // Lock onto this side while the limb is mid-rep; release the lock once back at rest
+  if (counter.phase === "active" || progress > 0.32) {
+    lockedSide = s;
+  } else if (progress < 0.18) {
+    lockedSide = null;
+  }
 
   // Form feedback (only while moving through the rep, so it doesn't nag at rest)
   if (progress > 0.3) {
@@ -450,7 +499,7 @@ function drawSetOverlay() {
   octx.textAlign = "center";
   octx.fillStyle = "#fff";
   if (setState === "resting") {
-    const left = Math.max(0, restEndsAt - performance.now());
+    const left = loop?.paused ? restRemainingMs : Math.max(0, restEndsAt - performance.now());
     octx.font = `bold ${Math.round(H * 0.22)}px system-ui`;
     octx.fillText(fmtClock(left), W / 2, H / 2 + H * 0.06);
     octx.font = `600 ${Math.round(H * 0.06)}px system-ui`;
