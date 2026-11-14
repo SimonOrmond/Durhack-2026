@@ -49,6 +49,17 @@ function summaryRows(pr) {
   return rows;
 }
 
+function resolveAppUrl() {
+  if (process.env.APP_URL) return process.env.APP_URL.trim();
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.trim()}`;
+  }
+  return `http://localhost:${process.env.PORT || 5173}`;
+}
+
 /**
  * Send the prescription summary. kind: "new" | "updated".
  * Resolves to { sent, to?, skipped?, error? }; never throws, so a mail problem can't block a prescription.
@@ -59,7 +70,7 @@ export async function sendPrescriptionEmail({ kind = "new", prescription: pr, pa
   if (!to) return { sent: false, skipped: "Patient has no email address (or set EMAIL_TO in .env)" };
 
   const ex = EXERCISES[pr.exerciseKey] ?? {};
-  const appUrl = process.env.APP_URL || `http://localhost:${process.env.PORT || 5173}`;
+  const appUrl = resolveAppUrl();
   // Link to the login page (signs out anyone already signed in), then on to the patient dashboard.
   const loginUrl = `${appUrl.replace(/\/+$/, "")}/login.html?fresh=1&next=${encodeURIComponent("/index.html#dashboard")}`;
   const first = String(patient?.name ?? "there").split(" ")[0];

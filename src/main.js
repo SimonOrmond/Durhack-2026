@@ -1,13 +1,14 @@
 // Wires the pipeline together:
 //   camera -> PoseLandmarker -> joint angle -> smoothing -> RepCounter -> events -> UI + game
 
-import { createPoseTracker, startCamera, runDetectionLoop, loadMediaPipe } from "./pose.js";
+import { createPoseTracker, startCamera, runDetectionLoop, loadMediaPipe, listCameras, VIRTUAL_CAM_RE } from "./pose.js";
 import { angle2D, pickSide, sideVisibility, Smoother } from "./angles.js";
 import { EXERCISES, progressFromAngle, RepCounter, checkForm, splitPhases } from "./exercises.js";
 import { RunnerGame, RUNNER_STATES, TEMPOS, DEFAULT_TEMPO } from "./game.js";
 import { Api, requireUser, logout } from "./api.js";
 import { SessionRecorder } from "./session.js";
 import { tempoOf, repTempoScore, tempoDirection } from "./tempo.js";
+import { initMuscleDemo } from "./muscle-demo.js";
 
 // Must be signed in (any role: physios can try the patient view too).
 const user = requireUser();
@@ -49,8 +50,8 @@ function syncExerciseBanner(trackedSide = null) {
   const isCurl = exerciseKey === "curl";
   el.classList.toggle("is-curl", isCurl);
   el.textContent = isCurl
-    ? `💪 ACTIVE MOVEMENT: BICEP CURL · ${sideLabel}`
-    : `Movement: ${exercise.name} · ${sideLabel}`;
+    ? `Bicep Curl · ${sideLabel}`
+    : `${exercise.name} · ${sideLabel}`;
 }
 function syncDefaultSide(ex) {
   const sideEl = $("side");
@@ -66,6 +67,21 @@ syncDefaultSide(exercise);
 $("instructions").textContent = exercise.instructions;
 $("cue").textContent = exercise.instructions;
 $("cue").className = "cue neutral";
+
+const muscleDemo = initMuscleDemo({
+  canvas: $("muscle-demo-canvas"),
+  primaryEl: $("demo-primary-muscles"),
+  secondaryEl: $("demo-secondary-muscles"),
+  cuesEl: $("demo-form-cues"),
+  romEl: $("demo-rom-meta"),
+  tempoBadgeEl: $("demo-tempo-badge"),
+  viewLabelEl: $("demo-view-label"),
+  titleEl: $("demo-exercise-title"),
+  playBtn: $("demo-play-toggle"),
+  toggleBtn: $("toggle-muscle-demo"),
+  bodyEl: $("muscle-demo-body"),
+});
+muscleDemo.setExercise(exerciseKey, exercise, DEFAULT_TEMPO, $("side")?.value === "L" ? "L" : "R");
 
 $("user-chip").textContent = user.name;
 $("logout").addEventListener("click", logout);
@@ -216,6 +232,7 @@ async function loadPlan() {
     game.setConcentric(exercise.concentric);
     game.setHoldTargetMs((firstPr.holdSeconds || 2) * 1000);
     game.setTempo(firstPr.tempo);
+    muscleDemo.setExercise(exerciseKey, exercise, firstPr.tempo, $("side")?.value === "L" ? "L" : "R");
     recorder.start(exerciseKey, firstPr);
     $("set-progress").hidden = false;
     $("sp-exercise").textContent = firstPr.exerciseName;
@@ -754,6 +771,8 @@ async function applyPrescription(pr) {
   game.setConcentric(exercise.concentric);
   game.setHoldTargetMs((pr.holdSeconds || 2) * 1000);
   game.setTempo(pr.tempo);
+  muscleDemo.setExercise(exerciseKey, exercise, pr.tempo, $("side")?.value === "L" ? "L" : "R");
+  if (!running) muscleDemo.setCollapsed(false);
   recorder.start(exerciseKey, pr);
   $("set-progress").hidden = false;
   $("sp-exercise").textContent = pr.exerciseName;
@@ -1027,6 +1046,7 @@ function syncModeConstraints(mode) {
     game.setConcentric(exercise.concentric);
     game.setTempo(DEFAULT_TEMPO);
     game.setResting(false);
+    muscleDemo.setExercise(exerciseKey, exercise, DEFAULT_TEMPO, $("side")?.value === "L" ? "L" : "R");
     if (recorder.active) recorder.start(exerciseKey, null);
   }
   const labelEl = $("gauge-label");
@@ -1285,6 +1305,8 @@ exerciseSelect.addEventListener("change", async () => {
   game.setConcentric(exercise.concentric);
   game.setTempo(DEFAULT_TEMPO);
   game.setResting(false);
+  muscleDemo.setExercise(exerciseKey, exercise, DEFAULT_TEMPO, $("side")?.value === "L" ? "L" : "R");
+  if (!running) muscleDemo.setCollapsed(false);
   recorder.start(exerciseKey, null); // free play is still recorded
   game.pause("waiting"); // starts when the patient presses Start
   setStatus(`Free play: ${exercise.name}. Press Start when you're ready.`);
@@ -1302,6 +1324,7 @@ $("side")?.addEventListener("change", () => {
   $("phase").classList.remove("active-phase");
   $("gauge").classList.remove("at-target");
   syncExerciseBanner();
+  muscleDemo.setSide($("side")?.value === "L" ? "L" : "R");
 });
 $("mirror").addEventListener("change", (e) => document.body.classList.toggle("mirror", e.target.checked));
 document.body.classList.toggle("mirror", $("mirror").checked);
@@ -1616,6 +1639,62 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// ---- Camera selection & hot-swap ----
+const CAM_STORAGE_KEY = "physio.cameraId";
+const cameraSelect = $("camera-select");
+
+async function populateCameraSelect(activeStream = null) {
+  if (!cameraSelect) return;
+  const devices = await listCameras();
+  const savedId = localStorage.getItem(CAM_STORAGE_KEY) || "";
+  const activeId = activeStream?.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId || "";
+  const currentVal = activeId || savedId || cameraSelect.value || "";
+
+  cameraSelect.innerHTML = "";
+  const autoOpt = document.createElement("option");
+  autoOpt.value = "";
+  autoOpt.textContent = "Built-in webcam (Auto)";
+  cameraSelect.appendChild(autoOpt);
+
+  devices.forEach((d, idx) => {
+    if (!d.deviceId) return;
+    const opt = document.createElement("option");
+    opt.value = d.deviceId;
+    const raw = d.label || `Camera ${idx + 1}`;
+    opt.textContent = VIRTUAL_CAM_RE.test(raw) ? `${raw} (Virtual)` : raw;
+    cameraSelect.appendChild(opt);
+  });
+
+  if (currentVal && [...cameraSelect.options].some((o) => o.value === currentVal)) {
+    cameraSelect.value = currentVal;
+  } else {
+    cameraSelect.value = "";
+  }
+}
+
+if (cameraSelect) {
+  populateCameraSelect().catch(() => {});
+  navigator.mediaDevices?.addEventListener?.("devicechange", () => {
+    populateCameraSelect(video.srcObject).catch(() => {});
+  });
+  cameraSelect.addEventListener("change", async () => {
+    const id = cameraSelect.value || "";
+    if (id) localStorage.setItem(CAM_STORAGE_KEY, id);
+    else localStorage.removeItem(CAM_STORAGE_KEY);
+    if (video.srcObject) {
+      try {
+        setStatus("Switching camera…");
+        const stream = await startCamera(video, id || null);
+        await populateCameraSelect(stream);
+        setStatus(running ? "Exercise active · camera switched" : "Camera ready.");
+      } catch (err) {
+        setStatus(`Error: ${err.message}`, "error");
+        flashCue(err.message, "warn");
+      }
+    }
+  });
+}
+
 // ---- Start Exercise & Camera ----
 function setStatus(text, kind = "") {
   const el = $("status");
@@ -1635,7 +1714,9 @@ async function startExercise() {
   try {
     if (!loop) {
       setStatus("Starting camera… (allow camera access in browser prompt)");
-      await startCamera(video);
+      const chosenCam = cameraSelect?.value || localStorage.getItem(CAM_STORAGE_KEY) || null;
+      const stream = await startCamera(video, chosenCam);
+      await populateCameraSelect(stream);
       const { landmarker, mp } = await createPoseTracker({ onStatus: setStatus });
       drawer = new mp.DrawingUtils(octx);
       connections = mp.PoseLandmarker.POSE_CONNECTIONS;
@@ -1647,6 +1728,7 @@ async function startExercise() {
     delete btn.dataset.busy;
     btn.disabled = false;
     running = true;
+    muscleDemo.setCollapsed(true);
     game.resetStats(); // coins / tunnel accuracy are tallied per run
 
     // Start exercise and game now that camera has started

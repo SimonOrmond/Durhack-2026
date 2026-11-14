@@ -12,6 +12,9 @@ export async function connect() {
 
   let uri = process.env.MONGODB_URI;
   if (!uri) {
+    if (process.env.VERCEL) {
+      throw new Error("MONGODB_URI is not set. Add MONGODB_URI in your Vercel Project Settings -> Environment Variables.");
+    }
     const { MongoMemoryServer } = await import("mongodb-memory-server");
     memServer = await MongoMemoryServer.create();
     uri = memServer.getUri();

@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Physio dashboard</title>
   <link rel="icon" href="data:," />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="src/styles.css" />
 </head>
 <body>
@@ -67,16 +70,16 @@
           <div class="angle-row" style="align-items:flex-start;gap:12px">
             <label style="flex:1">
               Rest angle (fixed for this exercise)
-              <div id="p-rest-display" class="angle-fixed-display">â°</div>
+              <div id="p-rest-display" class="angle-fixed-display">—°</div>
             </label>
-            <div class="angle-arrow">â</div>
+            <div class="angle-arrow">→</div>
             <label style="flex:1.6">
               How far should the patient reach? °
               <input id="p-range" type="number" min="1" max="180" placeholder="e.g. 60" />
             </label>
             <label style="flex:1">
               Resulting target angle
-              <div id="p-target-display" class="angle-fixed-display accent">â°</div>
+              <div id="p-target-display" class="angle-fixed-display accent">—°</div>
             </label>
           </div>
           <div class="muted small" id="p-defaults" style="margin-top:6px"></div>
