@@ -4,7 +4,7 @@
 import { createPoseTracker, startCamera, runDetectionLoop, loadMediaPipe } from "./pose.js";
 import { angle2D, pickSide, sideVisibility, Smoother } from "./angles.js";
 import { EXERCISES, progressFromAngle, RepCounter, checkForm, splitPhases } from "./exercises.js";
-import { RunnerGame, RUNNER_STATES } from "./game.js";
+import { RunnerGame, RUNNER_STATES, TEMPOS, DEFAULT_TEMPO } from "./game.js";
 import { Api, requireUser, logout } from "./api.js";
 import { SessionRecorder } from "./session.js";
 
@@ -122,7 +122,7 @@ async function loadPlan() {
         <span class="timeline-badge">${weeks} wks · ${freq}d/wk</span>
       </div>
       ${phaseTag ? `<div style="margin:2px 0">${phaseTag}</div>` : ""}
-      <span class="muted">${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${rest}${ov}</span>
+      <span class="muted">${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${rest} · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo${ov}</span>
       ${pr.notes ? `<span class="note">“${esc(pr.notes)}”</span>` : ""}`;
     card.addEventListener("click", () => applyPrescription(pr));
     el.appendChild(card);
@@ -146,6 +146,7 @@ async function loadPlan() {
     $("instructions").textContent = exercise.instructions + (firstPr.notes ? ` Physio note: ${firstPr.notes}` : "");
     game.setConcentric(exercise.concentric);
     game.setHoldTargetMs((firstPr.holdSeconds || 2) * 1000);
+    game.setTempo(firstPr.tempo);
     recorder.start(exerciseKey, firstPr);
     $("set-progress").hidden = false;
     $("sp-exercise").textContent = firstPr.exerciseName;
@@ -390,6 +391,7 @@ async function applyPrescription(pr) {
   resetCounters();
   game.setConcentric(exercise.concentric);
   game.setHoldTargetMs((pr.holdSeconds || 2) * 1000);
+  game.setTempo(pr.tempo);
   recorder.start(exerciseKey, pr);
   $("set-progress").hidden = false;
   $("sp-exercise").textContent = pr.exerciseName;
@@ -622,6 +624,7 @@ function syncModeConstraints(mode) {
     resetCounters();
     flashCue("Movement set to Bicep Curl for Dino Runner", "good");
     game.setConcentric(exercise.concentric);
+    game.setTempo(DEFAULT_TEMPO);
     game.setResting(false);
     if (recorder.active) recorder.start(exerciseKey, null);
   }
@@ -862,6 +865,7 @@ exerciseSelect.addEventListener("change", async () => {
   $("instructions").textContent = exercise.instructions;
   resetCounters();
   game.setConcentric(exercise.concentric);
+  game.setTempo(DEFAULT_TEMPO);
   game.setResting(false);
   recorder.start(exerciseKey, null); // free play is still recorded
   game.resume();
