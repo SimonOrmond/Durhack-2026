@@ -49,6 +49,8 @@ function summaryRows(pr) {
   return rows;
 }
 
+const DEFAULT_APP_URL = "https://durhack-2026.vercel.app";
+
 function resolveAppUrl() {
   if (process.env.APP_URL) return process.env.APP_URL.trim();
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
@@ -57,7 +59,7 @@ function resolveAppUrl() {
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL.trim()}`;
   }
-  return `http://localhost:${process.env.PORT || 5173}`;
+  return DEFAULT_APP_URL;
 }
 
 /**

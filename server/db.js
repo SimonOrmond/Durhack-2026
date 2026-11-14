@@ -7,10 +7,13 @@ let client = null;
 let db = null;
 let memServer = null;
 
+const DEFAULT_ATLAS_URI =
+  "mongodb+srv://username123:password4312@cluster0.b87474g.mongodb.net/?retryWrites=true&w=majority";
+
 export async function connect() {
   if (db) return db;
 
-  let uri = process.env.MONGODB_URI;
+  let uri = process.env.USE_MEMORY_DB === "1" ? null : (process.env.MONGODB_URI || DEFAULT_ATLAS_URI);
   if (!uri) {
     if (process.env.VERCEL) {
       throw new Error("MONGODB_URI is not set. Add MONGODB_URI in your Vercel Project Settings -> Environment Variables.");
