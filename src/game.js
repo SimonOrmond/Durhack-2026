@@ -6,18 +6,9 @@
 // Half the height of the glider cave corridor (was 57 → 114px corridor; now 144px).
 const CAVE_HALF_H = 72;
 
-// Rep tempos a physio can prescribe. Each sets how long one cave hill takes to pass:
-// lift (up), hold at the top, controlled lower (down), then a rest in the valley.
-export const TEMPOS = {
-  slow:   { key: "slow",   name: "Slow",   up: 3,    hold: 1,    down: 3,    rest: 1.5 },
-  medium: { key: "medium", name: "Medium", up: 2,    hold: 0.75, down: 2,    rest: 1.25 },
-  fast:   { key: "fast",   name: "Fast",   up: 1.25, hold: 0.5,  down: 1.25, rest: 1 },
-};
-export const DEFAULT_TEMPO = "slow";
-export const tempoSummary = (key) => {
-  const t = TEMPOS[key] ?? TEMPOS[DEFAULT_TEMPO];
-  return `${t.up}s up · ${t.hold}s hold · ${t.down}s down`;
-};
+// Rep tempos (how long one cave hill takes to pass) live in tempo.js; re-exported for callers.
+import { TEMPOS, DEFAULT_TEMPO, tempoSummary } from "./tempo.js";
+export { TEMPOS, DEFAULT_TEMPO, tempoSummary };
 
 const PB_KEYS = {
   glider: "durhack_glider_pb",
@@ -113,6 +104,28 @@ export class RunnerGame {
     }
   }
 
+  /** Start a fresh tally of session stats (coins, out-of-tunnel hits, time in the tunnel). */
+  resetStats() {
+    this.stats = { coins: 0, coinsMissed: 0, hits: 0, playSeconds: 0, inTunnelSeconds: 0, scoreStart: this.score ?? 0 };
+  }
+
+  /** Stats since the last resetStats(), saved with the session for the patient dashboard. */
+  getStats() {
+    const s = this.stats ?? {};
+    const offered = (s.coins ?? 0) + (s.coinsMissed ?? 0);
+    return {
+      mode: this.mode,
+      tempo: this.tempo,
+      coins: s.coins ?? 0,
+      coinsOffered: offered,
+      hits: s.hits ?? 0,
+      score: Math.max(0, (this.score ?? 0) - (s.scoreStart ?? 0)),
+      // Share of active play time the dino spent inside the cave tunnel (glider only)
+      tunnelPct: this.mode === "glider" && s.playSeconds > 1 ? +(s.inTunnelSeconds / s.playSeconds).toFixed(3) : null,
+      playSeconds: Math.round(s.playSeconds ?? 0),
+    };
+  }
+
   reset(keepWaiting = false) {
     this.groundY = (this.H || 320) - 46;
     this.mode = this.mode ?? "glider";
@@ -140,6 +153,7 @@ export class RunnerGame {
     this.score = 0;
     this.coins = 0;
     this.hits = 0;
+    this.resetStats();
     this.newPb = false;
     this.shield = 0; // 0..1
     this.shieldActive = false;
@@ -594,10 +608,12 @@ export class RunnerGame {
       ) {
         c.taken = true;
         this.coins += 1;
+        this.stats.coins += 1;
         this.addScore(15);
         this.popups.push({ x: c.x, y: c.y - 8, text: "+15", life: 0.65 });
       }
     }
+    for (const c of this.coinItems) if (!c.taken && c.x + c.r <= -12) this.stats.coinsMissed += 1;
     this.coinItems = this.coinItems.filter((c) => !c.taken && c.x + c.r > -12);
 
     for (const pop of this.popups) {
@@ -624,6 +640,10 @@ export class RunnerGame {
           break;
         }
       }
+      if (!this.resting) {
+        this.stats.playSeconds += dt;
+        if (!caveHit) this.stats.inTunnelSeconds += dt;
+      }
       if (caveHit && this.caveHitCooldown <= 0) {
         this.caveHitCooldown = 0.9;
         if (this.shieldActive) {
@@ -631,6 +651,7 @@ export class RunnerGame {
           this.shield = 0;
         } else {
           this.hits += 1;
+          this.stats.hits += 1;
           this.flash = 0.3;
         }
       }
@@ -650,6 +671,7 @@ export class RunnerGame {
             this.shield = 0;
           } else {
             this.hits += 1;
+            this.stats.hits += 1;
             this.flash = 0.3;
           }
         }

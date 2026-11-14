@@ -8,7 +8,7 @@
 //   POST /api/prescriptions                  create (physio only)
 //   PATCH /api/prescriptions/:id             edit sets/reps/tempo/etc. (physio only; exercise is fixed)
 //   DELETE /api/prescriptions/:id            deactivate (physio only)
-//   POST /api/sessions                       save a completed session (patient)
+//   POST /api/sessions                       save a completed session (patient); adds its coins to users.coins
 //   GET  /api/patients/:id/sessions          recent sessions, summaries only (?limit=20)
 //   GET  /api/sessions/:id                   one full session including every rep
 //   GET  /api/patients/:id/progress          aggregation: avg/best ROM per exercise per day
@@ -24,7 +24,7 @@ import { ObjectId } from "mongodb";
 import { connect, getDb, isMemory } from "./db.js";
 import { seedDatabase } from "./seed.js";
 import { EXERCISES } from "../src/exercises.js";
-import { normaliseRep, summarise } from "./metrics.js";
+import { normaliseRep, summarise, normaliseGame, scorePerformance } from "./metrics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -234,6 +234,14 @@ app.post(
     const setsCompleted = Math.max(0, Number(b.setsCompleted) || 0);
     const setsPrescribed = b.setsPrescribed != null ? Number(b.setsPrescribed) : null;
     const completedEarly = setsPrescribed != null && setsCompleted < setsPrescribed;
+    const prescription = prescriptionId ? await getDb().collection("prescriptions").findOne({ _id: prescriptionId }) : null;
+    const game = normaliseGame(b.game);
+    const perf = scorePerformance(reps, {
+      tempo: prescription?.tempo ?? "slow",
+      setsPrescribed: prescription?.sets ?? setsPrescribed,
+      repsPerSet: prescription?.reps ?? null,
+      game,
+    });
     const doc = {
       patientId,
       physioId: patient?.physioId ?? null,
@@ -247,10 +255,20 @@ app.post(
       completedEarly,
       reps,
       summary: summarise(reps, startedAt, endedAt),
+      game,
+      performance: perf,
       source: "app",
     };
     const { insertedId } = await getDb().collection("sessions").insertOne(doc);
-    res.status(201).json({ _id: insertedId, ...doc });
+    // Running coin balance on the patient: users.coins (each session's coins also stay on the session).
+    let coinTotal = null;
+    if (game?.coins) {
+      const u = await getDb()
+        .collection("users")
+        .findOneAndUpdate({ _id: patientId }, { $inc: { coins: game.coins } }, { returnDocument: "after", projection: { coins: 1 } });
+      coinTotal = (u?.value ?? u)?.coins ?? null; // driver v5 returns { value }, v6 returns the doc
+    }
+    res.status(201).json({ _id: insertedId, ...doc, coinTotal });
   })
 );
 

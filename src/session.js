@@ -51,7 +51,8 @@ export class SessionRecorder {
     return this.reps.length - this.setsCompleted * repsPerSet;
   }
   /** POST to the API. Resolves to the saved document, or null if there was nothing to save. */
-  async save() {
+  /** extra.game: stats from the game (coins, tunnel accuracy, hits) for the patient dashboard. */
+  async save(extra = {}) {
     if (!this.active || !this.reps.length) return null;
     const setsPrescribed = this.prescription?.sets ?? null;
     const doc = await Api.saveSession({
@@ -61,6 +62,7 @@ export class SessionRecorder {
       setsCompleted: this.setsCompleted,
       setsPrescribed,
       reps: this.reps,
+      game: extra.game ?? null,
     });
     this.saved = true;
     return doc;

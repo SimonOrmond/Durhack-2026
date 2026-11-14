@@ -7,6 +7,7 @@ import { EXERCISES, progressFromAngle, RepCounter, checkForm, splitPhases } from
 import { RunnerGame, RUNNER_STATES, TEMPOS, DEFAULT_TEMPO } from "./game.js";
 import { Api, requireUser, logout } from "./api.js";
 import { SessionRecorder } from "./session.js";
+import { tempoOf, repTempoScore, tempoDirection } from "./tempo.js";
 
 // Must be signed in (any role: physios can try the patient view too).
 const user = requireUser();
@@ -79,13 +80,19 @@ let activePrescription = null; // the one being performed, or null for free play
 //   resting  -> rest timer between sets; reps are ignored
 //   done     -> all sets complete, session saved; reps ignored until a new exercise is chosen
 //   free     -> no prescription: every rep counts and is recorded as free play
+//   ready    -> a prescription is loaded but not started yet
 let setState = "free";
+// True from pressing Start until the exercise is finished or stopped. While running, the
+// exercise and game can't be changed (dropdowns disabled, plan cards locked) and reps count.
+let running = false;
+const isLocked = () => running;
 let restEndsAt = 0;       // performance.now() when the rest ends
 let restRemainingMs = 0;  // remaining rest while paused
 let restTicker = null;
 const DEFAULT_REST_S = 60;
 
 let sessions = [];             // recent sessions (summaries) for this patient
+let coinBalance = null;        // users.coins: all-time coins saved on the patient's account
 
 /** Monday 00:00 of the current week. */
 function weekStart(now = new Date()) {
@@ -145,10 +152,13 @@ async function loadPlan() {
   const el = $("plan");
   try {
     if (user.role === "patient") {
-      [plan, sessions] = await Promise.all([
+      let me;
+      [plan, sessions, me] = await Promise.all([
         Api.prescriptions(user._id),
         Api.sessions(user._id, 100).catch(() => []),
+        Api.patient(user._id).catch(() => null),
       ]);
+      coinBalance = me?.coins ?? null;
     } else {
       plan = [];
     }
@@ -157,6 +167,7 @@ async function loadPlan() {
     return;
   }
   renderDashboard();
+  renderPerformance();
   renderWeeklyRx();
   if (!plan.length) {
     el.innerHTML = `<div class="muted small">${user.role === "patient" ? "Nothing prescribed yet. Use Free play above." : "Signed in as a physio: use Free play to try exercises."}</div>`;
@@ -186,8 +197,8 @@ async function loadPlan() {
     el.appendChild(card);
   }
 
-  // Pre-select the first outstanding prescription if none is active yet
-  if (plan.length && !activePrescription) {
+  // Pre-select the first outstanding prescription if none is active yet (never mid-exercise)
+  if (plan.length && !activePrescription && !running) {
     const firstPr = sortedPlan()[0];
     if (firstPr.exerciseKey !== "curl" && game.mode === "runner") {
       game.setMode("glider");
@@ -212,7 +223,8 @@ async function loadPlan() {
     $("sp-reps").textContent = firstPr.reps;
     $("finish").hidden = false;
     for (const c of el.children) c.classList.toggle("active", c.dataset?.id === firstPr._id);
-    if ($("start")) $("start").textContent = `Start ${firstPr.exerciseName}`;
+    setState = "ready";
+    syncLock();
   }
 
   renderPatientTimeline(plan, sessions);
@@ -222,6 +234,193 @@ async function loadPlan() {
 function goExercise(pr) {
   location.hash = "#exercise";
   if (pr && (activePrescription?._id !== pr._id || setState === "done")) applyPrescription(pr);
+}
+
+/** Tell the patient why they can't switch right now. */
+function warnLocked() {
+  const name = activePrescription?.exerciseName ?? exercise?.name ?? "the current exercise";
+  flashCue(`Finish or stop ${name} before switching exercise or game.`, "warn");
+  cueTimer = performance.now() + 4000;
+}
+
+/** Keep the Start/Stop button and the switching controls in step with `running` / `setState`. */
+function syncLock() {
+  const locked = isLocked();
+  exerciseSelect.disabled = locked;
+  if (gameModeSelect) gameModeSelect.disabled = locked;
+  document.body.classList.toggle("exercise-locked", locked);
+  const btn = $("start");
+  if (!btn || btn.dataset.busy) return;
+  btn.classList.toggle("btn-stop", running);
+  if (running) {
+    btn.textContent = "■ Stop exercise";
+  } else if (activePrescription && setState === "done") {
+    const allSets = recorder.setsCompleted >= (activePrescription.sets ?? 1);
+    btn.textContent = allSets
+      ? `✓ Complete · Do ${activePrescription.exerciseName} again`
+      : `↻ Restart ${activePrescription.exerciseName}`;
+  } else if (activePrescription) {
+    btn.textContent = `▶ Start ${activePrescription.exerciseName}`;
+  } else {
+    btn.textContent = `▶ Start ${exercise?.name ?? "exercise"} (free play)`;
+  }
+}
+
+// ---- Dashboard: performance score, metrics and coaching tips ----
+
+/**
+ * Scores for one saved session. New sessions carry `performance` + `game` from the server;
+ * older ones get tempo accuracy / completion estimated from their summary averages.
+ */
+function sessionPerf(s) {
+  const pr = plan.find((p) => String(p._id) === String(s.prescriptionId));
+  const tempo = s.performance?.tempo ?? pr?.tempo ?? DEFAULT_TEMPO;
+  const sum = s.summary ?? {};
+  const tempoAccuracy = s.performance?.tempoAccuracy ?? (sum.repCount ? repTempoScore(sum.avgConcentricMs, sum.avgEccentricMs, tempo) : null);
+  const target = pr ? pr.sets * pr.reps : null;
+  const completion =
+    s.performance?.completion ??
+    (target ? Math.min(1, (sum.repCount ?? 0) / target) : s.setsPrescribed ? Math.min(1, (s.setsCompleted ?? 0) / s.setsPrescribed) : null);
+  const g = s.game ?? null;
+  return {
+    s,
+    tempo,
+    tempoAccuracy,
+    completion,
+    tunnelPct: g?.tunnelPct ?? null,
+    hits: g?.hits ?? null,
+    coins: g?.coins ?? null,
+    coinsOffered: g?.coinsOffered ?? null,
+    score: s.performance?.score ?? null,
+  };
+}
+
+/** Same weighting as the server: tempo 40%, completion 40%, tunnel 20% (over whichever exist). */
+function overallScore(p) {
+  if (p.score != null) return p.score;
+  const parts = [[p.tempoAccuracy, 0.4], [p.completion, 0.4], [p.tunnelPct, 0.2]].filter(([v]) => v != null);
+  const w = parts.reduce((a, [, x]) => a + x, 0);
+  return w ? Math.round((parts.reduce((a, [v, x]) => a + v * x, 0) / w) * 100) : null;
+}
+
+const mean = (xs) => {
+  const v = xs.filter((x) => x != null && Number.isFinite(x));
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+};
+const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
+
+function setBar(id, v) {
+  const el = $(id);
+  if (!el) return;
+  el.style.width = `${v == null ? 0 : Math.round(Math.min(1, v) * 100)}%`;
+  el.className = v == null ? "" : v >= 0.85 ? "good" : v >= 0.6 ? "ok" : "low";
+}
+
+function renderPerformance() {
+  if (!$("perf-score")) return;
+  const mon = weekStart();
+  const lastMon = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() - 7);
+  const all = sessions.map(sessionPerf);
+  const thisWeek = all.filter((p) => new Date(p.s.startedAt) >= mon);
+  const lastWeek = all.filter((p) => new Date(p.s.startedAt) >= lastMon && new Date(p.s.startedAt) < mon);
+  // Score this week's sessions; if there are none yet, fall back to the 5 most recent.
+  const recent = thisWeek.length ? thisWeek : all.slice(0, 5);
+  $("perf-period").textContent = thisWeek.length ? "this week" : recent.length ? "recent sessions" : "";
+
+  const score = mean(recent.map(overallScore));
+  const tempoAcc = mean(recent.map((p) => p.tempoAccuracy));
+  const completion = mean(recent.map((p) => p.completion));
+  const withGame = recent.filter((p) => p.tunnelPct != null);
+  const tunnel = mean(withGame.map((p) => p.tunnelPct));
+  const coinsWeek = thisWeek.reduce((n, p) => n + (p.coins ?? 0), 0);
+  const coinsAll = coinBalance ?? all.reduce((n, p) => n + (p.coins ?? 0), 0);
+  const coinsOffered = recent.reduce((n, p) => n + (p.coinsOffered ?? 0), 0);
+  const coinRate = coinsOffered ? recent.reduce((n, p) => n + (p.coins ?? 0), 0) / coinsOffered : null;
+
+  // Big score ring
+  const ring = $("perf-ring");
+  $("perf-score").textContent = score == null ? "—" : Math.round(score);
+  ring.style.setProperty("--p", score == null ? 0 : Math.round(score));
+  ring.className = `perf-ring ${score == null ? "" : score >= 85 ? "good" : score >= 60 ? "ok" : "low"}`;
+  $("perf-grade").textContent =
+    score == null ? "No sessions yet" : score >= 90 ? "Excellent! ⭐" : score >= 75 ? "Great work" : score >= 60 ? "Good effort" : "Keep practising";
+  const lastScore = mean(lastWeek.map(overallScore));
+  const trendEl = $("perf-trend");
+  if (score != null && lastScore != null && thisWeek.length) {
+    const d = Math.round(score - lastScore);
+    trendEl.textContent = d > 0 ? `▲ ${d} vs last week` : d < 0 ? `▼ ${-d} vs last week` : "Same as last week";
+    trendEl.className = d > 0 ? "small trend-up" : d < 0 ? "small trend-down" : "muted small";
+  } else {
+    trendEl.textContent = "";
+  }
+
+  // Metric tiles
+  $("perf-tempo").textContent = pct(tempoAcc);
+  setBar("perf-tempo-bar", tempoAcc);
+  $("perf-tempo-sub").textContent = tempoAcc == null ? "no reps yet" : "match to prescribed speed";
+  $("perf-completion").textContent = pct(completion);
+  setBar("perf-completion-bar", completion);
+  $("perf-completion-sub").textContent = completion == null ? "no prescribed sessions" : "of prescribed reps";
+  $("perf-tunnel").textContent = pct(tunnel);
+  setBar("perf-tunnel-bar", tunnel);
+  $("perf-tunnel-sub").textContent = tunnel == null ? "play Cave Glider to track" : `${withGame.reduce((n, p) => n + (p.hits ?? 0), 0)} wall bumps`;
+  $("perf-coins").textContent = coinsWeek;
+  setBar("perf-coins-bar", coinRate);
+  $("perf-coins-sub").textContent = coinRate == null ? `${coinsAll} all time` : `${pct(coinRate)} collected · ${coinsAll} all time`;
+
+  renderCoachTips({ recent, tempoAcc, completion, tunnel, coinRate });
+}
+
+/** Short, specific tips from the recent sessions: tunnel control, tempo, completion, coins. */
+function renderCoachTips({ recent, tempoAcc, completion, tunnel, coinRate }) {
+  const ul = $("coach-tips");
+  if (!ul) return;
+  const tips = []; // [kind, text]  kind: warn | good | info
+  if (!recent.length) {
+    tips.push(["info", "Complete an exercise to start earning a performance score and coins."]);
+  } else {
+    // Tunnel: look at the latest Cave Glider session first, then the recent average.
+    const lastGlide = recent.find((p) => p.tunnelPct != null);
+    if (lastGlide && (lastGlide.tunnelPct < 0.8 || (lastGlide.hits ?? 0) >= 3)) {
+      tips.push([
+        "warn",
+        `Your dino drifted outside the tunnel ${lastGlide.hits ?? 0} time${lastGlide.hits === 1 ? "" : "s"} last session ` +
+          `(inside ${pct(lastGlide.tunnelPct)} of the time) on ${lastGlide.s.exerciseName}. ` +
+          `Move more smoothly and try to follow the dashed line through the middle of the tunnel.`,
+      ]);
+    } else if (tunnel != null && tunnel >= 0.9) {
+      tips.push(["good", `Great control: your dino stayed inside the tunnel ${pct(tunnel)} of the time.`]);
+    }
+
+    // Tempo: say which way they're off, using the most recent session's averages.
+    const last = recent[0];
+    const dir = tempoDirection(last.s.summary?.avgConcentricMs, last.s.summary?.avgEccentricMs, last.tempo);
+    const t = tempoOf(last.tempo);
+    const actualS = ((last.s.summary?.avgConcentricMs ?? 0) + (last.s.summary?.avgEccentricMs ?? 0)) / 1000;
+    if (dir === "too fast") {
+      tips.push(["warn", `Your ${last.s.exerciseName} reps were too quick (about ${actualS.toFixed(1)}s up and down vs ${t.up + t.down}s prescribed). Slow down and let the hills set your pace.`]);
+    } else if (dir === "too slow") {
+      tips.push(["warn", `Your ${last.s.exerciseName} reps were slower than prescribed (about ${actualS.toFixed(1)}s vs ${t.up + t.down}s). Try to keep up with the hills.`]);
+    } else if (tempoAcc != null && tempoAcc >= 0.8) {
+      tips.push(["good", `Your tempo is spot on (${pct(tempoAcc)} accurate). Keep it up!`]);
+    }
+
+    // Completion
+    const short = recent.find((p) => p.completion != null && p.completion < 1);
+    if (short) {
+      tips.push(["warn", `You finished ${pct(short.completion)} of your reps on ${short.s.exerciseName}. Try to complete every set, as finishing them is what builds strength.`]);
+    } else if (completion != null && completion >= 1) {
+      tips.push(["good", "You've completed every prescribed rep. Brilliant consistency!"]);
+    }
+
+    // Coins
+    if (coinRate != null && coinRate < 0.5) {
+      tips.push(["info", `You collected ${pct(coinRate)} of the coins. Coins sit along the hill shape, so a full, steady range of motion picks them up.`]);
+    }
+    if (!tips.length) tips.push(["good", "Solid sessions. Keep going to push your score higher!"]);
+  }
+  const icon = { warn: "⚠", good: "★", info: "💡" };
+  ul.innerHTML = tips.map(([k, text]) => `<li class="tip ${k}"><span class="tip-icon">${icon[k]}</span><span>${esc(text)}</span></li>`).join("");
 }
 
 // ---- Dashboard: today's tasks + headline numbers ----
@@ -531,6 +730,10 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 
 /** Load a prescription: set the exercise, apply the physio's angle overrides, start recording. */
 async function applyPrescription(pr) {
+  if (isLocked()) {
+    if (pr._id !== activePrescription?._id) warnLocked();
+    return;
+  }
   if (recorder.active && recorder.reps.length) await finishSession(true);
   stopRestTimer();
   if (pr.exerciseKey !== "curl" && game.mode === "runner") {
@@ -557,25 +760,25 @@ async function applyPrescription(pr) {
   $("sp-sets").textContent = pr.sets;
   $("sp-reps").textContent = pr.reps;
   $("finish").hidden = false;
-  if ($("start")) $("start").textContent = loop ? "Exercise in progress" : `Start ${pr.exerciseName}`;
 
-  if (loop) {
-    startSet();
-  } else {
-    setState = "ready";
-    game.pause("waiting");
-    setStatus(`Selected: ${pr.exerciseName}. Click Start exercise to begin.`);
-  }
+  // Loading an exercise never starts it: the patient presses Start when they're ready.
+  setState = "ready";
+  game.pause("waiting");
+  updateSetProgress();
+  setStatus(`Selected: ${pr.exerciseName}. Press Start when you're ready.`);
+  syncLock();
 }
 
 function updateSetProgress() {
   if (!activePrescription) return;
   const pr = activePrescription;
-  const done = setState === "done";
+  const done = setState === "done" && recorder.setsCompleted >= pr.sets; // finished every set
+  const stopped = setState === "done" && !done; // stopped early
   const inSet = done ? pr.reps : Math.min(pr.reps, Math.max(0, recorder.repsInCurrentSet(pr.reps)));
   $("sp-set").textContent = done ? pr.sets : Math.min(pr.sets, recorder.setsCompleted + 1);
   $("sp-rep").textContent = inSet;
-  $("sp-state").textContent = setState === "resting" ? "Resting" : setState === "done" ? "Complete" : "Go";
+  $("sp-state").textContent =
+    setState === "resting" ? "Resting" : done ? "Complete ✓" : stopped ? "Stopped" : setState === "ready" ? "Ready" : "Go";
   $("skip-rest").hidden = setState !== "resting";
   document.body.classList.toggle("resting", setState === "resting");
   game.setResting(setState === "resting" || setState === "done");
@@ -596,7 +799,7 @@ function startSet() {
   updateSetProgress();
   flashCue(`Set ${recorder.setsCompleted + 1} of ${pr.sets}: ${pr.reps} reps. Go!`, "good");
   cueTimer = performance.now() + 2500;
-  if ($("start")) $("start").textContent = "Exercise in progress";
+  syncLock();
 }
 
 /** Called after each counted rep while a prescription is being worked: handles set boundaries. */
@@ -663,15 +866,20 @@ $("skip-rest").addEventListener("click", () => {
 async function completeSession() {
   const pr = activePrescription;
   setState = "done";
+  running = false;
   game.pause("done");
   stopRestTimer();
   updateSetProgress();
   $("finish").hidden = true;
+  syncLock();
+  setStatus(`${pr.exerciseName} complete ✓ · choose your next exercise`);
   flashCue(`All ${pr.sets} sets complete! Sending to your physio…`, "good");
   cueTimer = performance.now() + 8000;
   const saved = await finishSession(true);
   if (saved) {
-    flashCue(`All ${pr.sets} sets complete · sent to your physio ✓  (${saved.summary.repCount} reps, avg ROM ${Math.round(saved.summary.avgRom * 100)}%)`, "good");
+    const perf = saved.performance;
+    const extra = perf ? ` · Score ${perf.score} · tempo ${Math.round(perf.tempoAccuracy * 100)}%${saved.game ? ` · 🪙 ${saved.game.coins}` : ""}` : "";
+    flashCue(`All ${pr.sets} sets complete · sent to your physio ✓  (${saved.summary.repCount} reps, avg ROM ${Math.round(saved.summary.avgRom * 100)}%${extra})`, "good");
     cueTimer = performance.now() + 10000;
     $("sp-rest").textContent = "Sent ✓";
   }
@@ -690,7 +898,7 @@ async function finishSession(silent = false) {
   const pr = activePrescription;
   let saved = null;
   try {
-    saved = await recorder.save();
+    saved = await recorder.save({ game: game.getStats() });
     if (!silent) {
       flashCue(`Session saved ✓ ${saved.summary.repCount} reps, avg ROM ${Math.round(saved.summary.avgRom * 100)}%`, "good");
       cueTimer = performance.now() + 6000;
@@ -717,22 +925,56 @@ async function finishSession(silent = false) {
   return saved;
 }
 
-$("finish").addEventListener("click", async () => {
-  // Manual finish: if the patient hasn't completed all prescribed sets, warn before saving.
-  if (!activePrescription) return finishSession();
-  const setsPrescribed = activePrescription.sets ?? null;
-  const setsCompleted = recorder.setsCompleted ?? 0;
-  if (setsPrescribed != null && setsCompleted < setsPrescribed) {
-    const confirmed = window.confirm(
-      `You have only completed ${setsCompleted} of ${setsPrescribed} set${setsPrescribed === 1 ? '' : 's'}.
-` +
-      `This session will be marked as INCOMPLETE in your timeline.
-
-Save anyway?`
-    );
-    if (!confirmed) return;
+/**
+ * Stop the running exercise (Stop button / Finish & save). Saves whatever reps were done;
+ * a prescription stopped before all sets asks first, since it's logged as incomplete.
+ * Afterwards the exercise and game can be changed again.
+ */
+async function stopExercise() {
+  if (activePrescription && setState !== "done") {
+    const setsPrescribed = activePrescription.sets ?? null;
+    const setsCompleted = recorder.setsCompleted ?? 0;
+    if (recorder.reps.length && setsPrescribed != null && setsCompleted < setsPrescribed) {
+      const confirmed = window.confirm(
+        `You have only completed ${setsCompleted} of ${setsPrescribed} set${setsPrescribed === 1 ? "" : "s"}.\n` +
+          `This session will be marked as INCOMPLETE in your timeline.\n\nStop and save anyway?`
+      );
+      if (!confirmed) return;
+    }
   }
-  await finishSession(false);
+  running = false;
+  if (loop?.paused) setPaused(false);
+  stopRestTimer();
+  const hadReps = recorder.reps.length > 0;
+  if (hadReps) await finishSession(false);
+  if (activePrescription) {
+    if (hadReps) {
+      setState = "done";
+      game.pause("done");
+    } else {
+      // Nothing recorded: just go back to "ready" for the same prescription.
+      setState = "ready";
+      recorder.start(activePrescription.exerciseKey, activePrescription);
+      $("finish").hidden = false;
+      game.pause("waiting");
+      flashCue("Stopped. No reps were recorded.", "warn");
+    }
+    updateSetProgress();
+  } else {
+    setState = "free";
+    recorder.start(exerciseKey, null);
+    game.pause("waiting");
+    if (!hadReps) flashCue("Stopped.", "warn");
+  }
+  document.body.classList.remove("resting");
+  setStatus("Stopped · you can now change exercise or game");
+  syncLock();
+}
+
+$("finish").addEventListener("click", () => {
+  if (running) return stopExercise();
+  if (!activePrescription) return finishSession();
+  flashCue("Press Start to begin this exercise.", "warn");
 });
 loadPlan();
 
@@ -806,6 +1048,10 @@ game.setMode(gameModeSelect?.value ?? "glider");
 syncModeConstraints(game.mode);
 syncGameHelp(game.mode);
 gameModeSelect?.addEventListener("change", () => {
+  if (isLocked()) {
+    gameModeSelect.value = game.mode;
+    return warnLocked();
+  }
   game.setMode(gameModeSelect.value);
   syncModeConstraints(game.mode);
   syncGameHelp(game.mode);
@@ -816,8 +1062,9 @@ let cueTimer = 0;
 
 // ---- Events out of the pipeline -> UI + game ----
 counter.addEventListener("rep", (e) => {
-  // Reps only count while working a set or in free play. During rest / after completion they're ignored.
-  if (setState === "resting" || setState === "done") return;
+  // Reps only count once Start is pressed, while working a set or in free play.
+  // Before starting, during rest and after completion they're ignored.
+  if (!running || setState === "resting" || setState === "done" || setState === "ready") return;
   const rep = { ...e.detail, ...splitPhases(exercise, e.detail) };
   $("reps").textContent = rep.count;
   $("rom").textContent = `${Math.round(rep.rom * 100)}%`;
@@ -1002,15 +1249,27 @@ function resetAll() {
   if (activePrescription) {
     recorder.start(activePrescription.exerciseKey, activePrescription);
     $("finish").hidden = false;
-    startSet();
+    if (running) {
+      startSet(); // restart the same exercise from set 1
+    } else {
+      setState = "ready";
+      game.pause("waiting");
+      updateSetProgress();
+    }
   } else {
     setState = "free";
     recorder.start(exerciseKey, null);
-    game.resume();
+    if (running) game.resume();
+    else game.pause("waiting");
   }
+  syncLock();
 }
 
 exerciseSelect.addEventListener("change", async () => {
+  if (isLocked()) {
+    exerciseSelect.value = exerciseKey;
+    return warnLocked();
+  }
   if (recorder.active && recorder.reps.length) await finishSession(true);
   stopRestTimer();
   activePrescription = null;
@@ -1027,7 +1286,9 @@ exerciseSelect.addEventListener("change", async () => {
   game.setTempo(DEFAULT_TEMPO);
   game.setResting(false);
   recorder.start(exerciseKey, null); // free play is still recorded
-  game.resume();
+  game.pause("waiting"); // starts when the patient presses Start
+  setStatus(`Free play: ${exercise.name}. Press Start when you're ready.`);
+  syncLock();
 });
 recorder.start(exerciseKey, null);
 $("reset").addEventListener("click", resetAll);
@@ -1312,6 +1573,8 @@ function setPaused(paused) {
       game.pause("resting");
     } else if (setState === "done") {
       game.pause("done");
+    } else if (!running || setState === "ready") {
+      game.pause("waiting");
     } else {
       game.resume();
     }
@@ -1362,11 +1625,12 @@ function setStatus(text, kind = "") {
 
 async function startExercise() {
   const btn = $("start");
-  if (loop && !loop.paused) {
-    flashCue("Exercise is already in progress!", "good");
-    return;
-  }
+  if (btn.dataset.busy) return;
+  if (running) return stopExercise();
+  // Finished prescription: "Do again" reloads it fresh (new recording, set 1).
+  if (activePrescription && setState === "done") await applyPrescription(activePrescription);
   btn.disabled = true;
+  btn.dataset.busy = "1";
   btn.textContent = "Starting camera…";
   try {
     if (!loop) {
@@ -1380,28 +1644,31 @@ async function startExercise() {
     } else if (loop.paused) {
       setPaused(false);
     }
-    btn.textContent = "Exercise in progress";
+    delete btn.dataset.busy;
     btn.disabled = false;
+    running = true;
+    game.resetStats(); // coins / tunnel accuracy are tallied per run
 
     // Start exercise and game now that camera has started
     if (activePrescription) {
-      if (setState !== "working" && setState !== "resting") {
-        startSet();
-      } else {
-        game.resume();
-      }
+      startSet();
     } else {
       setState = "free";
+      if (!recorder.active || recorder.saved) recorder.start(exerciseKey, null);
       game.resume();
       flashCue("Camera active! Do your reps in front of the screen.", "good");
     }
     setStatus("Exercise active · follow the movement on screen");
+    syncLock();
   } catch (err) {
     console.error(err);
+    delete btn.dataset.busy;
+    running = false;
     setStatus(`Error: ${err.message}`, "error");
     flashCue(err.message, "warn");
     cueTimer = performance.now() + 15000;
     btn.disabled = false;
+    syncLock();
     btn.textContent = "Retry start";
   }
 }
@@ -1410,9 +1677,7 @@ $("start").addEventListener("click", startExercise);
 
 // Module is loaded: enable the Start exercise button.
 $("start").disabled = false;
-if (!$("start").textContent.startsWith("Start ")) {
-  $("start").textContent = "Start exercise";
-}
+syncLock();
 setStatus("Ready. Choose an exercise or click Start exercise.");
 loadMediaPipe(() => {}).catch(() => {});
 

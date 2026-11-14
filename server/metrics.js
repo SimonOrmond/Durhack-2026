@@ -9,7 +9,54 @@
 //   holdMs                time held at the target
 //   restBeforeMs          pause since the previous rep (null for the first)
 
+import { repTempoScore } from "../src/tempo.js";
+
 const ms = (v) => Math.max(0, Math.round(Number(v) || 0));
+const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+
+/** Game stats sent by the client, clamped to sane values (or null when absent). */
+export function normaliseGame(g) {
+  if (!g || typeof g !== "object") return null;
+  const int = (v, max) => Math.max(0, Math.min(max, Math.round(Number(v) || 0)));
+  return {
+    mode: g.mode === "runner" ? "runner" : "glider",
+    coins: int(g.coins, 10000),
+    coinsOffered: int(g.coinsOffered, 10000),
+    hits: int(g.hits, 10000),
+    score: int(g.score, 1e7),
+    tunnelPct: g.tunnelPct == null ? null : +clamp01(g.tunnelPct).toFixed(3),
+    playSeconds: int(g.playSeconds, 86400),
+  };
+}
+
+/**
+ * Patient-facing performance scores (all 0..1):
+ *   tempoAccuracy  how closely each rep's up/down time matched the prescribed tempo
+ *   completion     reps done out of the prescribed sets × reps (null for free play)
+ *   coinRate       coins collected out of coins the dino passed
+ *   score          weighted overall: tempo 40%, completion 40%, tunnel accuracy 20%
+ *                  (weights re-balance over whichever parts are available)
+ */
+export function scorePerformance(reps, { tempo, setsPrescribed, repsPerSet, game }) {
+  const tempoAccuracy = reps.length ? avg(reps.map((r) => repTempoScore(r.concentricMs, r.eccentricMs, tempo))) : 0;
+  const target = setsPrescribed && repsPerSet ? setsPrescribed * repsPerSet : null;
+  const completion = target ? clamp01(reps.length / target) : null;
+  const tunnel = game?.tunnelPct ?? null;
+  const parts = [
+    [tempoAccuracy, 0.4],
+    [completion, 0.4],
+    [tunnel, 0.2],
+  ].filter(([v]) => v != null);
+  const wsum = parts.reduce((s, [, w]) => s + w, 0);
+  const score = wsum ? parts.reduce((s, [v, w]) => s + v * w, 0) / wsum : 0;
+  return {
+    tempo: tempo ?? null,
+    tempoAccuracy: +tempoAccuracy.toFixed(3),
+    completion: completion == null ? null : +completion.toFixed(3),
+    coinRate: game?.coinsOffered ? +clamp01(game.coins / game.coinsOffered).toFixed(3) : null,
+    score: Math.round(score * 100), // 0..100
+  };
+}
 const avg = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
 
 /** Normalise one rep from the client into the stored shape. */
