@@ -35,7 +35,9 @@ All data is made up. Passwords are stored in plain text on purpose: this is a ha
 
 1. Sign in as `dr.khan` → pick a patient → **Send prescription** (exercise, sets × reps, hold, optional per-patient angle targets, note).
 2. Sign out, sign in as that patient → the prescription appears under **Today's plan** → click it → **Start camera** → do the reps.
-   Set/rep progress is tracked; after the last set the session saves automatically (or press **Finish & save**).
+   Each set counts to the prescribed reps, then a rest countdown runs (physio sets the seconds; **Skip rest** available;
+   reps during rest are ignored). After the last set, counting stops and the session is saved and sent to the physio
+   automatically. **Finish & save** ends early with the reps so far.
 3. Back as the physio: the session appears under **Recent sessions** (refreshes every 10 s, so two laptops works live).
 
 ## Pages
@@ -55,6 +57,7 @@ All data is made up. Passwords are stored in plain text on purpose: this is a ha
 | 3. Exercises | `src/exercises.js` | Exercise table (joints, rest/target angle, form checks) + `RepCounter` state machine |
 | 4. Game | `src/game.js` | Runner that jumps on `rep` (height ∝ ROM), charges a shield on `hold`, crouches with live `progress` |
 | Glue | `src/main.js` | Wires camera → angle → counter → DOM + game, applies prescriptions, records sessions |
+| Charts | `src/charts.js` | Dependency-free SVG line / bar / stacked-bar charts with hover tooltips |
 | Session | `src/session.js` | `SessionRecorder`: collects reps + form cues, posts to the API |
 | API client | `src/api.js` | `Api.*` helpers, `getUser`/`requireUser`/`logout` |
 
@@ -74,17 +77,40 @@ Express serves the static files and a JSON API on one port. Identity is an `x-us
 | DELETE | `/api/prescriptions/:id` | physio | deactivate |
 | POST | `/api/sessions` | patient | save reps; server computes `summary` |
 | GET | `/api/patients/:id/sessions` | any | recent sessions, summaries only (reps array excluded) |
+| GET | `/api/sessions/:id` | any | one full session with every rep |
 | GET | `/api/patients/:id/progress` | any | **aggregation pipeline**: per exercise per day → avg/best ROM, reps, cue count |
+
+### What a rep records
+
+Every completed rep is timed by the state machine in `src/exercises.js` and stored on the session:
+
+| Field | Meaning |
+|---|---|
+| `rom` | fraction of the prescribed range reached (1.0 = hit the target angle) |
+| `peakAngle` | actual joint angle at the deepest point, in degrees |
+| `concentricMs` / `eccentricMs` | time in the muscle-shortening vs lengthening phase. Which direction is which is per exercise (`concentric: "toTarget" \| "toRest"`; a squat's way down is eccentric) |
+| `holdMs` | time on the plateau at the top of the rep (within 6% of the peak) |
+| `durationMs` | concentric + hold + eccentric |
+| `restBeforeMs` | pause since the previous rep |
+| `cues` | form cues that fired during the rep |
+
+The server computes a `summary` per session (avg/best ROM, avg peak angle, avg concentric/eccentric/hold, tempo in
+seconds per rep and reps per minute, cue counts) so the dashboard lists sessions without loading every rep.
+
+**Physio dashboard analysis** (per patient): latest-session tiles, a progress line chart with an exercise filter and a
+metric switch (ROM, peak angle, tempo, concentric, eccentric, hold, cues), a sessions table, and a rep-by-rep view with
+ROM bars against the target, stacked concentric/hold/eccentric bars, and a full rep table.
 
 ### Collections
 
 ```
 users          { username, password, name, role: "physio"|"patient", physioId?, condition? }
-prescriptions  { patientId, physioId, exerciseKey, exerciseName, sets, reps, holdSeconds,
+prescriptions  { patientId, physioId, exerciseKey, exerciseName, sets, reps, holdSeconds, restSeconds,
                  angleOverrides: { restAngle?, targetAngle? } | null, notes, active, createdAt }
-sessions       { patientId, physioId, prescriptionId, exerciseKey, exerciseName, startedAt, endedAt,
-                 setsCompleted, reps: [{ n, rom, durationMs, holdMs, cues: [] }],
-                 summary: { repCount, avgRom, bestRom, cueCount }, source }
+sessions       { patientId, physioId, prescriptionId, exerciseKey, exerciseName, startedAt, endedAt, setsCompleted,
+                 reps: [{ n, rom, peakAngle, durationMs, concentricMs, eccentricMs, holdMs, restBeforeMs, cues: [] }],
+                 summary: { repCount, avgRom, bestRom, avgPeakAngle, bestPeakAngle, avgDurationMs, avgConcentricMs,
+                            avgEccentricMs, avgHoldMs, avgRestMs, tempoRepsPerMin, cueCount, cueBreakdown }, source }
 ```
 
 Indexes: `users.username` (unique), `users.physioId`, `prescriptions {patientId, active}`,

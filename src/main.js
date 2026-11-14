@@ -3,7 +3,7 @@
 
 import { createPoseTracker, startCamera, runDetectionLoop, loadMediaPipe } from "./pose.js";
 import { angle2D, pickSide, Smoother } from "./angles.js";
-import { EXERCISES, progressFromAngle, RepCounter, checkForm } from "./exercises.js";
+import { EXERCISES, progressFromAngle, RepCounter, checkForm, splitPhases } from "./exercises.js";
 import { RunnerGame } from "./game.js";
 import { Api, requireUser, logout } from "./api.js";
 import { SessionRecorder } from "./session.js";
@@ -51,6 +51,17 @@ const recorder = new SessionRecorder();
 let plan = [];                 // active prescriptions for this patient
 let activePrescription = null; // the one being performed, or null for free play
 
+// Set state machine for a prescription:
+//   working  -> reps count toward the current set
+//   resting  -> rest timer between sets; reps are ignored
+//   done     -> all sets complete, session saved; reps ignored until a new exercise is chosen
+//   free     -> no prescription: every rep counts and is recorded as free play
+let setState = "free";
+let restEndsAt = 0;       // performance.now() when the rest ends
+let restRemainingMs = 0;  // remaining rest while paused
+let restTicker = null;
+const DEFAULT_REST_S = 60;
+
 async function loadPlan() {
   const el = $("plan");
   try {
@@ -69,8 +80,9 @@ async function loadPlan() {
     card.className = "plan-card";
     card.dataset.id = pr._id;
     const ov = pr.angleOverrides?.targetAngle ? ` · target ${pr.angleOverrides.targetAngle}°` : "";
+    const rest = pr.sets > 1 ? ` · rest ${pr.restSeconds ?? DEFAULT_REST_S}s` : "";
     card.innerHTML = `<b>${esc(pr.exerciseName)}</b>
-      <span class="muted">${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${ov}</span>
+      <span class="muted">${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${rest}${ov}</span>
       ${pr.notes ? `<span class="note">“${esc(pr.notes)}”</span>` : ""}`;
     card.addEventListener("click", () => applyPrescription(pr));
     el.appendChild(card);
@@ -81,55 +93,136 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 /** Load a prescription: set the exercise, apply the physio's angle overrides, start recording. */
 async function applyPrescription(pr) {
   if (recorder.active && recorder.reps.length) await finishSession(true);
+  stopRestTimer();
   activePrescription = pr;
   exerciseKey = pr.exerciseKey;
   exercise = { ...EXERCISES[exerciseKey], ...(pr.angleOverrides ?? {}) };
   exerciseSelect.value = exerciseKey;
   $("instructions").textContent = exercise.instructions + (pr.notes ? ` Physio note: ${pr.notes}` : "");
   for (const c of $("plan").children) c.classList.toggle("active", c.dataset?.id === pr._id);
+  stopRestTimer();
   resetCounters();
   recorder.start(exerciseKey, pr);
   $("set-progress").hidden = false;
   $("sp-exercise").textContent = pr.exerciseName;
   $("sp-sets").textContent = pr.sets;
   $("sp-reps").textContent = pr.reps;
-  updateSetProgress();
-  flashCue(`Set 1 of ${pr.sets}: ${pr.reps} reps`, "good");
+  $("finish").hidden = false;
+  startSet();
 }
 
 function updateSetProgress() {
   if (!activePrescription) return;
   const pr = activePrescription;
-  const inSet = Math.min(pr.reps, recorder.repsInCurrentSet(pr.reps));
-  $("sp-set").textContent = Math.min(pr.sets, recorder.setsCompleted + 1);
+  const done = setState === "done";
+  const inSet = done ? pr.reps : Math.min(pr.reps, Math.max(0, recorder.repsInCurrentSet(pr.reps)));
+  $("sp-set").textContent = done ? pr.sets : Math.min(pr.sets, recorder.setsCompleted + 1);
   $("sp-rep").textContent = inSet;
+  $("sp-state").textContent = setState === "resting" ? "Resting" : setState === "done" ? "Complete" : "Go";
+  $("skip-rest").hidden = setState !== "resting";
+  document.body.classList.toggle("resting", setState === "resting");
 }
 
-/** Called after each rep while a prescription is active: handles set boundaries and completion. */
-function onPrescribedRep() {
+/** Begin the next set: fresh rep counter, reps count again. */
+function startSet() {
   const pr = activePrescription;
-  if (recorder.repsInCurrentSet(pr.reps) >= pr.reps) {
+  setState = "working";
+  counter.reset();
+  smoother.reset();
+  $("reps").textContent = "0";
+  updateSetProgress();
+  flashCue(`Set ${recorder.setsCompleted + 1} of ${pr.sets}: ${pr.reps} reps. Go!`, "good");
+  cueTimer = performance.now() + 2500;
+}
+
+/** Called after each counted rep while a prescription is being worked: handles set boundaries. */
+function onPrescribedRep(tempo = "") {
+  const pr = activePrescription;
+  const inSet = recorder.repsInCurrentSet(pr.reps);
+  if (inSet >= pr.reps) {
     recorder.completeSet();
+    updateSetProgress();
     if (recorder.setsCompleted >= pr.sets) {
-      updateSetProgress();
-      finishSession();
-      return;
+      completeSession();
+    } else {
+      startRest();
     }
-    flashCue(`Set ${recorder.setsCompleted} done! Rest, then set ${recorder.setsCompleted + 1} of ${pr.sets}`, "good");
-    cueTimer = performance.now() + 4000;
+    return;
   }
+  if (tempo) flashCue(`Rep ${inSet} of ${pr.reps} · ${tempo}`, "good");
   updateSetProgress();
 }
 
-/** Save the session to the API. silent=true when auto-saving before switching exercise. */
+/** Rest between sets: countdown on the video and in the progress bar; reps are ignored. */
+function startRest() {
+  const pr = activePrescription;
+  setState = "resting";
+  restEndsAt = performance.now() + (pr.restSeconds ?? DEFAULT_REST_S) * 1000;
+  counter.reset();
+  flashCue(`Set ${recorder.setsCompleted} of ${pr.sets} done! Rest.`, "good");
+  cueTimer = performance.now() + 3000;
+  updateSetProgress();
+  stopRestTimer();
+  restTicker = setInterval(tickRest, 200);
+  tickRest();
+}
+function tickRest() {
+  if (setState !== "resting") return stopRestTimer();
+  if (loop?.paused) return; // countdown frozen while paused
+  const left = Math.max(0, restEndsAt - performance.now());
+  $("sp-rest").textContent = `Rest ${fmtClock(left)}`;
+  if (left <= 0) {
+    stopRestTimer();
+    startSet();
+  }
+}
+function stopRestTimer() {
+  if (restTicker) clearInterval(restTicker);
+  restTicker = null;
+  $("sp-rest").textContent = "";
+}
+const fmtClock = (msv) => {
+  const s = Math.ceil(msv / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+$("skip-rest").addEventListener("click", () => {
+  if (setState === "resting") {
+    stopRestTimer();
+    startSet();
+  }
+});
+
+/** All sets done: stop counting, save, tell the patient it went to the physio. */
+async function completeSession() {
+  const pr = activePrescription;
+  setState = "done";
+  stopRestTimer();
+  updateSetProgress();
+  $("finish").hidden = true;
+  flashCue(`All ${pr.sets} sets complete! Sending to your physio…`, "good");
+  cueTimer = performance.now() + 8000;
+  const saved = await finishSession(true);
+  if (saved) {
+    flashCue(`All ${pr.sets} sets complete · sent to your physio ✓  (${saved.summary.repCount} reps, avg ROM ${Math.round(saved.summary.avgRom * 100)}%)`, "good");
+    cueTimer = performance.now() + 10000;
+    $("sp-rest").textContent = "Sent ✓";
+  }
+}
+
+/**
+ * Save the session to the API. Returns the saved document (or null).
+ * silent=true: no "saved" cue (caller shows its own). Used by completeSession and when
+ * switching exercise with reps already recorded.
+ */
 async function finishSession(silent = false) {
   if (!recorder.active || !recorder.reps.length) {
     if (!silent) flashCue("No reps recorded yet", "warn");
-    return;
+    return null;
   }
   const pr = activePrescription;
+  let saved = null;
   try {
-    const saved = await recorder.save();
+    saved = await recorder.save();
     if (!silent) {
       flashCue(`Session saved ✓ ${saved.summary.repCount} reps, avg ROM ${Math.round(saved.summary.avgRom * 100)}%`, "good");
       cueTimer = performance.now() + 6000;
@@ -143,11 +236,22 @@ async function finishSession(silent = false) {
     flashCue(`Could not save session: ${err.message}`, "warn");
     cueTimer = performance.now() + 8000;
   }
-  activePrescription = null;
-  $("set-progress").hidden = true;
+  // Prescription stays displayed in the "done" state; the next click on a plan card or the
+  // Free play dropdown starts something new. Manual finish (button) ends it the same way.
+  if (setState !== "done") {
+    setState = "done";
+    stopRestTimer();
+    updateSetProgress();
+    $("finish").hidden = true;
+  }
+  return saved;
 }
 
-$("finish").addEventListener("click", () => finishSession());
+$("finish").addEventListener("click", async () => {
+  // Manual finish: counts the partial set so far, saves, stops counting.
+  if (!activePrescription) return finishSession();
+  await finishSession(false);
+});
 loadPlan();
 
 const counter = new RepCounter();
@@ -159,12 +263,16 @@ let cueTimer = 0;
 
 // ---- Events out of the pipeline -> UI + game ----
 counter.addEventListener("rep", (e) => {
-  $("reps").textContent = e.detail.count;
-  $("rom").textContent = `${Math.round(e.detail.rom * 100)}%`;
-  game.onRep(e.detail);
-  recorder.addRep(e.detail);
-  if (activePrescription) onPrescribedRep();
-  else flashCue("Nice rep!", "good");
+  // Reps only count while working a set or in free play. During rest / after completion they're ignored.
+  if (setState === "resting" || setState === "done") return;
+  const rep = { ...e.detail, ...splitPhases(exercise, e.detail) };
+  $("reps").textContent = rep.count;
+  $("rom").textContent = `${Math.round(rep.rom * 100)}%`;
+  game.onRep(rep);
+  recorder.addRep(rep);
+  const tempo = `${(rep.concentricMs / 1000).toFixed(1)}s up · ${(rep.eccentricMs / 1000).toFixed(1)}s down`;
+  if (activePrescription && setState === "working") onPrescribedRep(tempo);
+  else flashCue(`Nice rep! ${tempo}`, "good");
 });
 counter.addEventListener("phase", (e) => {
   $("phase").textContent = e.detail.phase === "active" ? "At target" : "Rest";
@@ -195,19 +303,25 @@ function resetCounters() {
 
 /** Reset button: clears counters and abandons the current session without saving. */
 function resetAll() {
+  stopRestTimer();
   resetCounters();
   recorder.reset();
   if (activePrescription) {
     recorder.start(activePrescription.exerciseKey, activePrescription);
-    updateSetProgress();
+    $("finish").hidden = false;
+    startSet();
   } else {
+    setState = "free";
     recorder.start(exerciseKey, null);
   }
 }
 
 exerciseSelect.addEventListener("change", async () => {
   if (recorder.active && recorder.reps.length) await finishSession(true);
+  stopRestTimer();
   activePrescription = null;
+  setState = "free";
+  document.body.classList.remove("resting");
   $("set-progress").hidden = true;
   for (const c of $("plan").children) c.classList?.remove("active");
   exerciseKey = exerciseSelect.value;
@@ -230,6 +344,7 @@ function onFrame({ landmarks, timestampMs, fps }) {
 
   if (!landmarks) {
     $("status").textContent = "No person detected. Step back so your whole body is in frame.";
+    drawSetOverlay();
     return;
   }
 
@@ -242,7 +357,7 @@ function onFrame({ landmarks, timestampMs, fps }) {
   const rawAngle = angle2D(landmarks[a], landmarks[b], landmarks[c], aspect);
   const angle = smoother.push(rawAngle);
   const progress = progressFromAngle(exercise, angle);
-  counter.update(progress, timestampMs);
+  counter.update(progress, timestampMs, angle);
 
   // Form feedback (only while moving through the rep, so it doesn't nag at rest)
   if (progress > 0.3) {
@@ -298,6 +413,7 @@ function onFrame({ landmarks, timestampMs, fps }) {
 
   $("angle").textContent = Math.round(angle);
   $("status").textContent = `Tracking (${s === "L" ? "left" : "right"} side) · ${fps.toFixed(0)} fps`;
+  drawSetOverlay();
 
   if (!$("debug-out").classList.contains("hidden")) {
     $("debug-out").textContent = JSON.stringify(
@@ -319,6 +435,38 @@ function onFrame({ landmarks, timestampMs, fps }) {
   }
 }
 
+/** Big rest countdown / completion banner on the camera view (readable from across the room). */
+function drawSetOverlay() {
+  if (!activePrescription || (setState !== "resting" && setState !== "done")) return;
+  const W = overlay.width, H = overlay.height;
+  if (!W || !H) return;
+  octx.save();
+  if (document.body.classList.contains("mirror")) {
+    octx.translate(W, 0);
+    octx.scale(-1, 1);
+  }
+  octx.fillStyle = "rgba(15, 18, 24, 0.6)";
+  octx.fillRect(0, 0, W, H);
+  octx.textAlign = "center";
+  octx.fillStyle = "#fff";
+  if (setState === "resting") {
+    const left = Math.max(0, restEndsAt - performance.now());
+    octx.font = `bold ${Math.round(H * 0.22)}px system-ui`;
+    octx.fillText(fmtClock(left), W / 2, H / 2 + H * 0.06);
+    octx.font = `600 ${Math.round(H * 0.06)}px system-ui`;
+    octx.fillStyle = "#4fd1a0";
+    octx.fillText(`REST · next: set ${recorder.setsCompleted + 1} of ${activePrescription.sets}`, W / 2, H / 2 - H * 0.16);
+  } else {
+    octx.font = `bold ${Math.round(H * 0.1)}px system-ui`;
+    octx.fillStyle = "#4fd1a0";
+    octx.fillText("ALL SETS COMPLETE", W / 2, H / 2 - H * 0.02);
+    octx.font = `${Math.round(H * 0.05)}px system-ui`;
+    octx.fillStyle = "#fff";
+    octx.fillText("Sent to your physio ✓  Pick your next exercise", W / 2, H / 2 + H * 0.08);
+  }
+  octx.restore();
+}
+
 // ---- Pause / resume ----
 // Pausing freezes pose processing and the game. The camera keeps streaming so
 // resume is instant. Rep count and score are kept; the smoother and any
@@ -326,6 +474,7 @@ function onFrame({ landmarks, timestampMs, fps }) {
 function setPaused(paused) {
   if (!loop) return;
   if (paused) {
+    if (setState === "resting") restRemainingMs = Math.max(0, restEndsAt - performance.now());
     loop.pause();
     game.pause();
     drawPausedVideoOverlay();
@@ -338,6 +487,7 @@ function setPaused(paused) {
       counter.holdMs = 0;
       $("phase").textContent = "Rest";
     }
+    if (setState === "resting") restEndsAt = performance.now() + restRemainingMs;
     loop.resume();
     game.resume();
     setStatus("Resumed");
@@ -420,6 +570,8 @@ window.__physio = {
   counter,
   recorder,
   game,
+  get setState() { return setState; },
+  skipRest: () => $("skip-rest").click(),
   get exercise() { return exercise; },
   get activePrescription() { return activePrescription; },
 };

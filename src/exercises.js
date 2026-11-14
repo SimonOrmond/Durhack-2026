@@ -41,6 +41,7 @@ export const EXERCISES = {
   squat: {
     name: "Squat / sit-to-stand",
     group: "Knee / hip",
+    concentric: "toRest", // standing back up is the concentric phase
     instructions: "Stand side-on to the camera, whole body in frame. Bend knees to ~90 degrees and stand back up.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE), side(s, LM.L_ANKLE, LM.R_ANKLE)],
     restAngle: 170,
@@ -172,11 +173,16 @@ export function progressFromAngle(ex, angle) {
  * Hysteresis (0.8 in / 0.25 out) stops jitter from double-counting.
  */
 export class RepCounter extends EventTarget {
-  constructor({ enterTarget = 0.8, exitTarget = 0.25, minRepMs = 400 } = {}) {
+  /**
+   * enterTarget / exitTarget: hysteresis on 0..1 progress. A rep is counted on rest → target → rest.
+   * plateauBand: how close to the peak (in progress units) still counts as "holding at the top".
+   */
+  constructor({ enterTarget = 0.8, exitTarget = 0.15, minRepMs = 400, plateauBand = 0.06 } = {}) {
     super();
     this.enterTarget = enterTarget;
     this.exitTarget = exitTarget;
     this.minRepMs = minRepMs;
+    this.plateauBand = plateauBand;
     this.reset();
   }
 
@@ -184,46 +190,139 @@ export class RepCounter extends EventTarget {
     this.phase = "rest"; // "rest" | "active"
     this.count = 0;
     this.maxProgress = 0;
-    this.repStart = 0;
-    this.holdStart = 0;
+    this.peakAngle = null;
+    this.repStart = 0;         // left the rest zone heading for the target
+    this.leaveRestAt = null;
+    this.reachTargetAt = 0;    // crossed enterTarget
+    this.lastRepEnd = null;
+    this.lastUnobservedToRestMs = 0;
     this.holdMs = 0;
     this.lastRom = null;
+    this.samples = [];         // [t, progress] for the rep in flight, used to split phases at the end
   }
 
-  update(progress, tMs) {
+  /**
+   * Feed one smoothed sample. `angle` (degrees) is optional and only used to report the
+   * peak angle actually reached, which physios read more naturally than a 0..1 ROM.
+   *
+   * Timeline of one rep:   rest ──toTarget──▶ peak plateau (hold) ──toRest──▶ rest
+   * The plateau is every sample within `plateauBand` of the rep's peak progress, so a slow
+   * approach to the target counts as movement, not hold.
+   */
+  update(progress, tMs, angle = null) {
     const p = Math.max(-0.2, Math.min(1.3, progress));
 
     if (this.phase === "rest") {
+      // Leaving the rest zone starts the clock for the first movement phase.
+      if (p > this.exitTarget) {
+        if (this.leaveRestAt == null) {
+          this.leaveRestAt = tMs;
+          this.samples = [];
+        }
+        this.samples.push([tMs, p]);
+      } else {
+        this.leaveRestAt = null; // dropped back into rest: not a rep attempt yet
+        this.samples = [];
+      }
+
       if (p >= this.enterTarget) {
         this.phase = "active";
-        this.repStart = this.holdStart = tMs;
+        this.repStart = this.leaveRestAt ?? tMs;
+        this.reachTargetAt = tMs;
         this.maxProgress = p;
+        this.peakAngle = angle;
         this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase } }));
       }
     } else {
-      this.maxProgress = Math.max(this.maxProgress, p);
-      this.holdMs = tMs - this.holdStart;
+      this.samples.push([tMs, p]);
+      if (p > this.maxProgress) {
+        this.maxProgress = p;
+        this.peakAngle = angle;
+      }
+      // Live hold estimate for the game: time spent within the plateau band of the current peak.
+      const band = this.maxProgress - this.plateauBand;
+      let holdStart = null;
+      for (const [t, q] of this.samples) if (q >= band) { holdStart = t; break; }
+      this.holdMs = holdStart == null ? 0 : tMs - holdStart;
       this.dispatchEvent(new CustomEvent("hold", { detail: { holdMs: this.holdMs } }));
 
       if (p <= this.exitTarget) {
-        const durationMs = tMs - this.repStart;
+        const { unobservedToTargetMs, unobservedToRestMs, ...phases } = this.#splitPhases(tMs);
+        const durationMs = phases.toTargetMs + phases.holdMs + phases.toRestMs;
+        // Gap since the previous rep, minus the slices of movement that happen below exitTarget
+        // (those were already credited to the movement phases via the stretch factor).
+        const restBeforeMs =
+          this.lastRepEnd == null
+            ? null
+            : Math.max(0, Math.round(this.repStart - this.lastRepEnd - unobservedToTargetMs - this.lastUnobservedToRestMs));
+        this.lastUnobservedToRestMs = unobservedToRestMs;
         this.phase = "rest";
+        this.leaveRestAt = null;
+        this.samples = [];
         this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase } }));
         if (durationMs >= this.minRepMs) {
           this.count += 1;
           this.lastRom = Math.min(1.3, this.maxProgress);
           this.dispatchEvent(
             new CustomEvent("rep", {
-              detail: { count: this.count, rom: this.lastRom, durationMs, holdMs: this.holdMs },
+              detail: {
+                count: this.count,
+                rom: this.lastRom,
+                peakAngle: this.peakAngle == null ? null : Math.round(this.peakAngle),
+                durationMs,
+                ...phases,
+                restBeforeMs,
+              },
             })
           );
         }
+        this.lastRepEnd = tMs;
         this.holdMs = 0;
       }
     }
 
     this.dispatchEvent(new CustomEvent("progress", { detail: { progress: p, phase: this.phase } }));
   }
+
+  /** Split the in-flight rep into toTarget / hold / toRest using the plateau around the peak. */
+  #splitPhases(tEnd) {
+    const band = this.maxProgress - this.plateauBand;
+    let reachPeak = null, leavePeak = null;
+    for (const [t, q] of this.samples) {
+      if (q >= band) {
+        reachPeak ??= t;
+        leavePeak = t;
+      }
+    }
+    reachPeak ??= this.reachTargetAt;
+    leavePeak ??= reachPeak;
+    // Movement is only observed between exitTarget and the peak; the first/last slice of the
+    // range (below exitTarget) is unobserved, so stretch proportionally to estimate full-range time.
+    const stretch = 1 / Math.max(0.5, 1 - this.exitTarget);
+    const observedToTarget = reachPeak - this.repStart;
+    const observedToRest = tEnd - leavePeak;
+    return {
+      toTargetMs: Math.round(observedToTarget * stretch),
+      holdMs: Math.round(leavePeak - reachPeak),
+      toRestMs: Math.round(observedToRest * stretch),
+      unobservedToTargetMs: observedToTarget * (stretch - 1),
+      unobservedToRestMs: observedToRest * (stretch - 1),
+    };
+  }
+}
+
+/**
+ * Split a rep's movement phases into concentric (muscle shortening, the "work" phase) and
+ * eccentric (lengthening, the controlled return). Which direction is which depends on the
+ * exercise: for a squat the way DOWN is eccentric; for a curl the way UP (to target) is concentric.
+ * Exercises set `concentric: "toTarget" | "toRest"`; default is "toTarget".
+ */
+export function splitPhases(ex, rep) {
+  const concentricIsToTarget = (ex.concentric ?? "toTarget") === "toTarget";
+  return {
+    concentricMs: concentricIsToTarget ? rep.toTargetMs : rep.toRestMs,
+    eccentricMs: concentricIsToTarget ? rep.toRestMs : rep.toTargetMs,
+  };
 }
 
 /** Run every form check for an exercise; returns the first cue or null. */

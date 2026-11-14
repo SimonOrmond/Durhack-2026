@@ -8,7 +8,8 @@
 //   POST /api/prescriptions                  create (physio only)
 //   DELETE /api/prescriptions/:id            deactivate (physio only)
 //   POST /api/sessions                       save a completed session (patient)
-//   GET  /api/patients/:id/sessions          recent sessions (?limit=20)
+//   GET  /api/patients/:id/sessions          recent sessions, summaries only (?limit=20)
+//   GET  /api/sessions/:id                   one full session including every rep
 //   GET  /api/patients/:id/progress          aggregation: avg/best ROM per exercise per day
 //
 // Identity is a header, x-user-id, set by the client after login. This is intentionally
@@ -22,6 +23,7 @@ import { ObjectId } from "mongodb";
 import { connect, getDb, isMemory } from "./db.js";
 import { seedDatabase } from "./seed.js";
 import { EXERCISES } from "../src/exercises.js";
+import { normaliseRep, summarise } from "./metrics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -128,6 +130,7 @@ app.post(
     const sets = Math.max(1, Math.min(20, Number(b.sets) || 1));
     const reps = Math.max(1, Math.min(100, Number(b.reps) || 10));
     const holdSeconds = Math.max(0, Math.min(60, Number(b.holdSeconds) || 0));
+    const restSeconds = b.restSeconds === undefined || b.restSeconds === "" ? 60 : Math.max(0, Math.min(600, Number(b.restSeconds) || 0));
     let angleOverrides = null;
     if (b.angleOverrides && typeof b.angleOverrides === "object") {
       angleOverrides = {};
@@ -146,6 +149,7 @@ app.post(
       sets,
       reps,
       holdSeconds,
+      restSeconds,
       angleOverrides,
       notes: String(b.notes ?? "").slice(0, 500),
       active: true,
@@ -180,20 +184,13 @@ app.post(
     const ex = EXERCISES[b.exerciseKey];
     if (!ex) return res.status(400).json({ error: `Unknown exerciseKey "${b.exerciseKey}"` });
 
-    const reps = Array.isArray(b.reps)
-      ? b.reps.slice(0, 500).map((r, i) => ({
-          n: i + 1,
-          rom: +Math.max(0, Math.min(1.5, Number(r.rom) || 0)).toFixed(2),
-          durationMs: Math.round(Number(r.durationMs) || 0),
-          holdMs: Math.round(Number(r.holdMs) || 0),
-          cues: Array.isArray(r.cues) ? r.cues.slice(0, 10).map(String) : [],
-        }))
-      : [];
+    const reps = Array.isArray(b.reps) ? b.reps.slice(0, 500).map(normaliseRep) : [];
     if (!reps.length) return res.status(400).json({ error: "No reps" });
 
     const prescriptionId = oid(b.prescriptionId);
     const patient = await getDb().collection("users").findOne({ _id: patientId });
     const startedAt = b.startedAt ? new Date(b.startedAt) : new Date();
+    const endedAt = new Date();
     const doc = {
       patientId,
       physioId: patient?.physioId ?? null,
@@ -201,19 +198,24 @@ app.post(
       exerciseKey: b.exerciseKey,
       exerciseName: ex.name,
       startedAt,
-      endedAt: new Date(),
+      endedAt,
       setsCompleted: Math.max(0, Number(b.setsCompleted) || 0),
       reps,
-      summary: {
-        repCount: reps.length,
-        avgRom: +(reps.reduce((s, r) => s + r.rom, 0) / reps.length).toFixed(2),
-        bestRom: +Math.max(...reps.map((r) => r.rom)).toFixed(2),
-        cueCount: reps.reduce((s, r) => s + r.cues.length, 0),
-      },
+      summary: summarise(reps, startedAt, endedAt),
       source: "app",
     };
     const { insertedId } = await getDb().collection("sessions").insertOne(doc);
     res.status(201).json({ _id: insertedId, ...doc });
+  })
+);
+
+app.get(
+  "/api/sessions/:id",
+  requireRole(),
+  wrap(async (req, res) => {
+    const s = await getDb().collection("sessions").findOne({ _id: oid(req.params.id) });
+    if (!s) return res.status(404).json({ error: "Not found" });
+    res.json(s);
   })
 );
 
@@ -251,6 +253,11 @@ app.get(
             exerciseName: { $first: "$exerciseName" },
             avgRom: { $avg: "$reps.rom" },
             bestRom: { $max: "$reps.rom" },
+            avgPeakAngle: { $avg: "$reps.peakAngle" },
+            avgDurationMs: { $avg: "$reps.durationMs" },
+            avgConcentricMs: { $avg: "$reps.concentricMs" },
+            avgEccentricMs: { $avg: "$reps.eccentricMs" },
+            avgHoldMs: { $avg: "$reps.holdMs" },
             reps: { $sum: 1 },
             cues: { $sum: { $size: "$reps.cues" } },
             sessions: { $addToSet: "$_id" },
@@ -264,6 +271,11 @@ app.get(
             day: "$_id.day",
             avgRom: { $round: ["$avgRom", 2] },
             bestRom: 1,
+            avgPeakAngle: { $round: ["$avgPeakAngle", 0] },
+            avgDurationMs: { $round: ["$avgDurationMs", 0] },
+            avgConcentricMs: { $round: ["$avgConcentricMs", 0] },
+            avgEccentricMs: { $round: ["$avgEccentricMs", 0] },
+            avgHoldMs: { $round: ["$avgHoldMs", 0] },
             reps: 1,
             cues: 1,
             sessions: { $size: "$sessions" },

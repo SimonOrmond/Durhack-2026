@@ -38,8 +38,12 @@
       <h3 style="margin-top:0">Today's plan <span class="muted small" id="plan-hint">from your physio</span></h3>
       <div id="plan" class="plan"><div class="muted small">Loading…</div></div>
       <div class="set-progress" id="set-progress" hidden>
-        <span><b id="sp-exercise"></b> · Set <span id="sp-set">1</span>/<span id="sp-sets">3</span> · Rep <span id="sp-rep">0</span>/<span id="sp-reps">10</span></span>
-        <button class="small-btn" id="finish">Finish &amp; save</button>
+        <span><b id="sp-exercise"></b> · Set <span id="sp-set">1</span>/<span id="sp-sets">3</span> · Rep <span id="sp-rep">0</span>/<span id="sp-reps">10</span>
+          <span class="sp-state" id="sp-state">Go</span> <b class="sp-rest" id="sp-rest"></b></span>
+        <span class="sp-actions">
+          <button class="small-btn" id="skip-rest" hidden>Skip rest</button>
+          <button class="small-btn" id="finish">Finish &amp; save</button>
+        </span>
       </div>
 
       <div class="stats">

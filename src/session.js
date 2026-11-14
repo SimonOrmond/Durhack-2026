@@ -29,9 +29,18 @@ export class SessionRecorder {
     if (this.active) this.pendingCues.add(cue);
   }
   /** Rep completed (detail from RepCounter's "rep" event). */
-  addRep({ rom, durationMs, holdMs }) {
+  addRep({ rom, peakAngle, durationMs, concentricMs, eccentricMs, holdMs, restBeforeMs }) {
     if (!this.active) return;
-    this.reps.push({ rom, durationMs, holdMs, cues: [...this.pendingCues] });
+    this.reps.push({
+      rom,
+      peakAngle: peakAngle ?? null,
+      durationMs,
+      concentricMs: concentricMs ?? 0,
+      eccentricMs: eccentricMs ?? 0,
+      holdMs: holdMs ?? 0,
+      restBeforeMs: restBeforeMs ?? null,
+      cues: [...this.pendingCues],
+    });
     this.pendingCues.clear();
   }
   completeSet() {

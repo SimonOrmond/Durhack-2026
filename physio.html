@@ -38,6 +38,7 @@
         <label>Sets <input id="p-sets" type="number" min="1" max="20" value="3" required /></label>
         <label>Reps per set <input id="p-reps" type="number" min="1" max="100" value="10" required /></label>
         <label>Hold (s) <input id="p-hold" type="number" min="0" max="60" value="0" /></label>
+        <label>Rest between sets (s) <input id="p-rest-secs" type="number" min="0" max="600" value="60" /></label>
         <details class="wide">
           <summary>Adjust target angles for this patient</summary>
           <div class="angle-row">
@@ -56,11 +57,64 @@
       <h3>Current plan</h3>
       <ul id="prescription-list" class="prescription-list"></ul>
 
-      <h3>Recent sessions</h3>
-      <table class="sessions" id="session-table">
-        <thead><tr><th>When</th><th>Exercise</th><th>Reps</th><th>Avg ROM</th><th>Best</th><th>Form cues</th></tr></thead>
-        <tbody></tbody>
-      </table>
+      <h3>Analysis <span class="muted" id="tiles-caption" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h3>
+      <div class="tiles" id="tiles"></div>
+
+      <div class="chart-card">
+        <div class="chart-head">
+          <b id="progress-title">Avg ROM over time</b>
+          <div class="chart-filters">
+            <select id="f-exercise" aria-label="Exercise"></select>
+            <select id="f-metric" aria-label="Metric">
+              <option value="avgRom">Avg ROM</option>
+              <option value="avgPeakAngle">Peak angle</option>
+              <option value="avgDurationMs">Tempo (s/rep)</option>
+              <option value="avgConcentricMs">Concentric time</option>
+              <option value="avgEccentricMs">Eccentric time</option>
+              <option value="avgHoldMs">Hold time</option>
+              <option value="cues">Form cues</option>
+            </select>
+          </div>
+        </div>
+        <div class="chart" id="progress-chart"></div>
+        <div class="muted small">One point per day the exercise was done. Hover for detail.</div>
+      </div>
+
+      <h3>Sessions <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· click a row for rep-by-rep detail</span></h3>
+      <div class="table-wrap">
+        <table class="sessions" id="session-table">
+          <thead><tr><th>When</th><th>Exercise</th><th>Reps</th><th>Avg ROM</th><th>Tempo</th><th>Concentric</th><th>Eccentric</th><th>Hold</th><th>Cues</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="session-detail" id="session-detail" hidden>
+        <div class="detail-head">
+          <div>
+            <b id="sd-title"></b>
+            <div class="muted small" id="sd-sub"></div>
+          </div>
+          <button class="small-btn" id="sd-close">Close</button>
+        </div>
+        <div class="chart-grid">
+          <div class="chart-card">
+            <div class="chart-head"><b>Range of motion per rep</b><span class="muted small">dashed = prescribed target</span></div>
+            <div class="chart" id="rom-chart"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-head"><b>Tempo per rep</b><span class="muted small">concentric · hold · eccentric</span></div>
+            <div class="chart" id="tempo-chart"></div>
+          </div>
+        </div>
+        <div class="muted small" id="cue-summary"></div>
+        <button class="small-btn" id="rep-table-toggle">Show rep table</button>
+        <div class="table-wrap">
+          <table class="sessions rep-table" id="rep-table" hidden>
+            <thead><tr><th>#</th><th>ROM</th><th>Peak</th><th>Concentric</th><th>Hold</th><th>Eccentric</th><th>Total</th><th>Rest before</th><th>Cues</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
   </main>
 

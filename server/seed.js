@@ -4,6 +4,7 @@
 import { pathToFileURL } from "node:url";
 import { connect, close } from "./db.js";
 import { EXERCISES } from "../src/exercises.js";
+import { summarise } from "./metrics.js";
 
 const PHYSIOS = [
   { username: "dr.khan", password: "physio", name: "Dr Amira Khan", role: "physio" },
@@ -40,6 +41,16 @@ const PLANS = {
   ],
   eve: [{ exerciseKey: "gluteBridge", sets: 3, reps: 12, holdSeconds: 5 }],
   femi: [{ exerciseKey: "shoulderRaise", sets: 3, reps: 8, angleOverrides: { targetAngle: 90 } }],
+};
+
+// Representative form cue per exercise for the fake history (matches the real cue wording).
+const SEED_CUES = {
+  squat: "Keep your chest up",
+  curl: "Keep your elbow tucked in",
+  shoulderRaise: "Keep your torso upright",
+  shoulderFlexion: "Don't lean back, keep your trunk still",
+  hipAbduction: "Stay upright, don't lean away from the leg",
+  straightLegRaise: "Keep your knee locked straight",
 };
 
 export async function seedDatabase(db, { reset = false } = {}) {
@@ -84,6 +95,7 @@ export async function seedDatabase(db, { reset = false } = {}) {
         sets: plan.sets,
         reps: plan.reps,
         holdSeconds: plan.holdSeconds ?? 0,
+        restSeconds: plan.restSeconds ?? 60,
         angleOverrides: plan.angleOverrides ?? null,
         notes: plan.notes ?? "",
         active: true,
@@ -93,20 +105,36 @@ export async function seedDatabase(db, { reset = false } = {}) {
       const { insertedId } = await prescriptions.insertOne(pres);
       nPres++;
 
-      // Fake history: one session a day for the last 5 days, ROM improving slightly
+      // Fake history: one session a day for the last 5 days. ROM improves, tempo gets more
+      // controlled (eccentric phase lengthens), form cues become rarer.
+      const target = plan.angleOverrides?.targetAngle ?? ex.targetAngle;
+      const cueText = SEED_CUES[plan.exerciseKey] ?? null;
       for (let d = 5; d >= 1; d--) {
         const startedAt = new Date(now - d * 86400e3 - 3600e3);
+        const progressDay = 5 - d; // 0..4
         const repsArr = [];
+        let t = 0;
         for (let i = 0; i < plan.reps; i++) {
-          const rom = Math.min(1.1, 0.6 + (5 - d) * 0.07 + (Math.random() - 0.5) * 0.12);
+          const rom = Math.min(1.1, 0.6 + progressDay * 0.07 + (Math.random() - 0.5) * 0.12);
+          const concentricMs = Math.round(900 + Math.random() * 400);
+          const eccentricMs = Math.round(900 + progressDay * 180 + Math.random() * 500);
+          const holdMs = Math.round((plan.holdSeconds ?? 0) * 1000 * (0.7 + Math.random() * 0.4));
+          const restBeforeMs = i === 0 ? null : Math.round(1200 + Math.random() * 1500);
+          const durationMs = concentricMs + holdMs + eccentricMs;
           repsArr.push({
             n: i + 1,
             rom: +rom.toFixed(2),
-            durationMs: 1200 + Math.round(Math.random() * 800),
-            holdMs: Math.round((plan.holdSeconds ?? 0) * 1000 * (0.7 + Math.random() * 0.4)),
-            cues: Math.random() < 0.15 ? ["Keep your trunk still"] : [],
+            peakAngle: Math.round(ex.restAngle + (target - ex.restAngle) * rom),
+            durationMs,
+            concentricMs,
+            eccentricMs,
+            holdMs,
+            restBeforeMs,
+            cues: cueText && Math.random() < 0.25 - progressDay * 0.04 ? [cueText] : [],
           });
+          t += durationMs + (restBeforeMs ?? 0);
         }
+        const endedAt = new Date(startedAt.getTime() + t);
         await sessions.insertOne({
           patientId: patient._id,
           physioId: patient.physioId,
@@ -114,15 +142,10 @@ export async function seedDatabase(db, { reset = false } = {}) {
           exerciseKey: plan.exerciseKey,
           exerciseName: ex.name,
           startedAt,
-          endedAt: new Date(startedAt.getTime() + repsArr.length * 2000),
+          endedAt,
           setsCompleted: 1,
           reps: repsArr,
-          summary: {
-            repCount: repsArr.length,
-            avgRom: +(repsArr.reduce((s, r) => s + r.rom, 0) / repsArr.length).toFixed(2),
-            bestRom: +Math.max(...repsArr.map((r) => r.rom)).toFixed(2),
-            cueCount: repsArr.reduce((s, r) => s + r.cues.length, 0),
-          },
+          summary: summarise(repsArr, startedAt, endedAt),
           source: "seed",
         });
         nSess++;

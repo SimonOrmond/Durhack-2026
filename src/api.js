@@ -48,5 +48,6 @@ export const Api = {
   stopPrescription: (id) => api(`/prescriptions/${id}`, { method: "DELETE" }),
   saveSession: (body) => api("/sessions", { method: "POST", body }),
   sessions: (patientId, limit = 20) => api(`/patients/${patientId}/sessions?limit=${limit}`),
+  session: (id) => api(`/sessions/${id}`),
   progress: (patientId, days = 30) => api(`/patients/${patientId}/progress?days=${days}`),
 };
