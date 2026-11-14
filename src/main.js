@@ -42,6 +42,8 @@ const exerciseSelect = $("exercise");
 let exerciseKey = exerciseSelect.value;
 let exercise = EXERCISES[exerciseKey];
 $("instructions").textContent = exercise.instructions;
+$("cue").textContent = exercise.instructions;
+$("cue").className = "cue neutral";
 
 $("user-chip").textContent = user.name;
 $("logout").addEventListener("click", logout);
@@ -279,14 +281,30 @@ counter.addEventListener("rep", (e) => {
   else flashCue(`Nice rep! ${tempo}`, "good");
 });
 counter.addEventListener("phase", (e) => {
-  $("phase").textContent = e.detail.phase === "active" ? "At target" : "Rest";
-  if (setState !== "resting" && setState !== "done") game.onPhase(e.detail);
+  const active = e.detail.phase === "active";
+  $("phase").textContent = active ? "At target ↑" : "Rest";
+  $("phase").classList.toggle("active-phase", active);
+  $("gauge").classList.toggle("at-target", active);
+  if (setState !== "resting" && setState !== "done") {
+    game.onPhase(e.detail);
+    if (active) {
+      flashCue("Target reached! Lower with control", "good");
+      cueTimer = performance.now() + 900;
+    }
+  }
 });
 counter.addEventListener("hold", (e) => game.onHold(e.detail));
 counter.addEventListener("progress", (e) => {
   $("gauge").style.width = `${Math.max(0, Math.min(1, e.detail.progress)) * 100}%`;
   game.onProgress(e.detail);
 });
+
+function setNeutralCue() {
+  const el = $("cue");
+  el.textContent = $("instructions").textContent || exercise.instructions;
+  el.className = "cue neutral";
+  cueTimer = 0;
+}
 
 function flashCue(text, kind) {
   const el = $("cue");
@@ -297,6 +315,11 @@ function flashCue(text, kind) {
 
 let lockedSide = null;      // locks to L or R while a rep is underway so side doesn't flip mid-rep
 let lastTrackedSide = null; // tracks the last side fed into smoother so switching L<->R resets the filter
+let prevRawL = null;
+let prevRawR = null;
+let velL = 0;
+let velR = 0;
+let lockedStaticFrames = 0;
 
 function resetCounters() {
   if (loop?.paused) setPaused(false);
@@ -305,10 +328,18 @@ function resetCounters() {
   game.reset();
   lockedSide = null;
   lastTrackedSide = null;
+  prevRawL = null;
+  prevRawR = null;
+  velL = 0;
+  velR = 0;
+  lockedStaticFrames = 0;
   $("reps").textContent = "0";
   $("rom").textContent = "—";
   $("phase").textContent = "—";
+  $("phase").classList.remove("active-phase");
   $("gauge").style.width = "0%";
+  $("gauge").classList.remove("at-target");
+  setNeutralCue();
 }
 
 /** Reset button: clears counters and abandons the current session without saving. */
@@ -344,6 +375,16 @@ exerciseSelect.addEventListener("change", async () => {
 });
 recorder.start(exerciseKey, null);
 $("reset").addEventListener("click", resetAll);
+$("side")?.addEventListener("change", () => {
+  lockedSide = null;
+  lastTrackedSide = null;
+  lockedStaticFrames = 0;
+  smoother.reset();
+  counter.reset();
+  $("phase").textContent = "Rest";
+  $("phase").classList.remove("active-phase");
+  $("gauge").classList.remove("at-target");
+});
 $("mirror").addEventListener("change", (e) => document.body.classList.toggle("mirror", e.target.checked));
 document.body.classList.toggle("mirror", $("mirror").checked);
 $("debug").addEventListener("change", (e) => $("debug-out").classList.toggle("hidden", !e.target.checked));
@@ -355,32 +396,69 @@ function onFrame({ landmarks, timestampMs, fps }) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
 
   if (!landmarks) {
+    prevRawL = null;
+    prevRawR = null;
+    velL = 0;
+    velR = 0;
+    lockedStaticFrames = 0;
     $("status").textContent = "No person detected. Step back so your whole body is in frame.";
     drawSetOverlay();
     return;
   }
 
   const aspect = video.videoWidth / video.videoHeight;
-  const fsRatio = exercise.foreshortenRatio ?? 0;
+  const sidePref = $("side")?.value ?? "auto";
   const [la, lb, lc] = exercise.joints("L");
   const [ra, rb, rc] = exercise.joints("R");
   const visL = sideVisibility(landmarks, [la, lb, lc]);
   const visR = sideVisibility(landmarks, [ra, rb, rc]);
 
+  const rawL = visL >= 0.3 ? angle2D(landmarks[la], landmarks[lb], landmarks[lc], aspect) : null;
+  const rawR = visR >= 0.3 ? angle2D(landmarks[ra], landmarks[rb], landmarks[rc], aspect) : null;
+  velL = rawL != null && prevRawL != null ? velL * 0.65 + Math.abs(rawL - prevRawL) * 0.35 : velL * 0.65;
+  velR = rawR != null && prevRawR != null ? velR * 0.65 + Math.abs(rawR - prevRawR) * 0.35 : velR * 0.65;
+  prevRawL = rawL;
+  prevRawR = rawR;
+
   let s;
-  if (lockedSide && (lockedSide === "L" ? visL : visR) >= 0.4) {
-    s = lockedSide;
-  } else if (visL >= 0.5 && visR >= 0.5 && Math.abs(visL - visR) < 0.25) {
-    // Both sides are clearly in frame (e.g. facing camera): track whichever limb is actively moving!
-    const progL = progressFromAngle(exercise, angle2D(landmarks[la], landmarks[lb], landmarks[lc], aspect, fsRatio));
-    const progR = progressFromAngle(exercise, angle2D(landmarks[ra], landmarks[rb], landmarks[rc], aspect, fsRatio));
-    if (Math.abs(progL - progR) > 0.14) {
-      s = progL > progR ? "L" : "R";
+  if (sidePref === "L" || sidePref === "R") {
+    s = sidePref;
+    lockedSide = null;
+    lockedStaticFrames = 0;
+  } else if (lockedSide && (lockedSide === "L" ? visL : visR) >= 0.4) {
+    const lockedVel = lockedSide === "L" ? velL : velR;
+    const otherSide = lockedSide === "L" ? "R" : "L";
+    const otherVel = otherSide === "L" ? velL : velR;
+    const otherVis = otherSide === "L" ? visL : visR;
+    if (lockedVel < 0.7 && otherVel > 1.8 && otherVis >= 0.5) {
+      lockedStaticFrames += 1;
     } else {
-      s = lastTrackedSide ?? (visL >= visR ? "L" : "R");
+      lockedStaticFrames = 0;
+    }
+    if (lockedStaticFrames >= 15) {
+      // Stationary arm (e.g. hand resting on chin) was locked while the other arm is actively exercising.
+      lockedSide = null;
+      lockedStaticFrames = 0;
+      counter.reset();
+      smoother.reset();
+      $("phase").textContent = "Rest";
+      $("phase").classList.remove("active-phase");
+      $("gauge").classList.remove("at-target");
+      s = otherSide;
+    } else {
+      s = lockedSide;
     }
   } else {
-    s = pickSide(landmarks, [la, lb, lc], [ra, rb, rc]);
+    lockedStaticFrames = 0;
+    if (visL >= 0.45 && visR >= 0.45) {
+      if (Math.abs(velL - velR) > 1.0) {
+        s = velL > velR ? "L" : "R";
+      } else {
+        s = lastTrackedSide ?? (visL >= visR ? "L" : "R");
+      }
+    } else {
+      s = pickSide(landmarks, [la, lb, lc], [ra, rb, rc]);
+    }
   }
 
   if (lastTrackedSide && s !== lastTrackedSide) {
@@ -396,7 +474,7 @@ function onFrame({ landmarks, timestampMs, fps }) {
     return;
   }
 
-  const rawAngle = angle2D(landmarks[a], landmarks[b], landmarks[c], aspect, fsRatio);
+  const rawAngle = (s === "L" ? rawL : rawR) ?? angle2D(landmarks[a], landmarks[b], landmarks[c], aspect);
   const angle = smoother.push(rawAngle);
   const progress = progressFromAngle(exercise, angle);
   counter.update(progress, timestampMs, angle);
@@ -404,8 +482,9 @@ function onFrame({ landmarks, timestampMs, fps }) {
   // Lock onto this side while the limb is mid-rep; release the lock once back at rest
   if (counter.phase === "active" || progress > 0.32) {
     lockedSide = s;
-  } else if (progress < 0.18) {
+  } else if (progress < 0.22) {
     lockedSide = null;
+    lockedStaticFrames = 0;
   }
 
   // Form feedback (only while moving through the rep, so it doesn't nag at rest)
@@ -418,9 +497,7 @@ function onFrame({ landmarks, timestampMs, fps }) {
     lastCue = cue;
   }
   if (cueTimer && performance.now() > cueTimer) {
-    $("cue").innerHTML = "&nbsp;";
-    $("cue").className = "cue";
-    cueTimer = 0;
+    setNeutralCue();
   }
 
   // Only the three joints that define this exercise are drawn, to keep the view clean.
@@ -533,8 +610,11 @@ function setPaused(paused) {
     smoother.reset();
     if (counter.phase === "active") {
       counter.phase = "rest";
+      counter.minAfterPeak = null;
       counter.holdMs = 0;
       $("phase").textContent = "Rest";
+      $("phase").classList.remove("active-phase");
+      $("gauge").classList.remove("at-target");
     }
     if (setState === "resting") restEndsAt = performance.now() + restRemainingMs;
     loop.resume();

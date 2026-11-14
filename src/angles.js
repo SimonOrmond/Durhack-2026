@@ -11,20 +11,13 @@ export const LM = {
   L_ANKLE: 27, R_ANKLE: 28,
 };
 
-/**
- * Angle at vertex b formed by a-b-c, in degrees (0..180).
- * foreshortenRatio (0..1): when > 0, compensates for 2D perspective foreshortening when the
- * distal limb segment (b->c, e.g. forearm in a front-facing bicep curl) points toward the camera.
- */
-export function angle2D(a, b, c, aspect = 1, foreshortenRatio = 0) {
+/** Angle at vertex b formed by a-b-c, in degrees (0..180). */
+export function angle2D(a, b, c, aspect = 1) {
   // aspect corrects for non-square normalized coords (x in 0..1 of width, y in 0..1 of height).
   const abx = (a.x - b.x) * aspect, aby = a.y - b.y;
   const cbx = (c.x - b.x) * aspect, cby = c.y - b.y;
   const dot = abx * cbx + aby * cby;
-  const lenAB = Math.hypot(abx, aby);
-  const lenCB = Math.hypot(cbx, cby);
-  const effectiveCB = foreshortenRatio > 0 ? Math.max(lenCB, lenAB * foreshortenRatio) : lenCB;
-  const mag = lenAB * effectiveCB;
+  const mag = Math.hypot(abx, aby) * Math.hypot(cbx, cby);
   if (mag === 0) return 0;
   return (Math.acos(Math.min(1, Math.max(-1, dot / mag))) * 180) / Math.PI;
 }
