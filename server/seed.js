@@ -23,24 +23,27 @@ const PATIENTS = [
 // patient username -> exercises to prescribe
 const PLANS = {
   alice: [
-    { exerciseKey: "heelSlide", sets: 3, reps: 10, holdSeconds: 2, notes: "Go as far as comfortable, no forcing." },
-    { exerciseKey: "straightLegRaise", sets: 3, reps: 8, holdSeconds: 3 },
-    { exerciseKey: "kneeExtension", sets: 2, reps: 12 },
+    { exerciseKey: "heelSlide", sets: 3, reps: 10, holdSeconds: 2, durationWeeks: 6, daysPerWeek: 5, timelinePhase: "Early Phase (Wks 1–6)", notes: "Go as far as comfortable, no forcing." },
+    { exerciseKey: "straightLegRaise", sets: 3, reps: 8, holdSeconds: 3, durationWeeks: 4, daysPerWeek: 4, timelinePhase: "Quads Activation (Wks 1–4)" },
+    { exerciseKey: "kneeExtension", sets: 2, reps: 12, durationWeeks: 4, daysPerWeek: 3, timelinePhase: "Extension ROM (Wks 1–4)" },
   ],
   bob: [
-    { exerciseKey: "shoulderFlexion", sets: 3, reps: 8, holdSeconds: 2, angleOverrides: { targetAngle: 110 }, notes: "Target reduced to 110° for now." },
-    { exerciseKey: "shoulderRaise", sets: 3, reps: 8, angleOverrides: { targetAngle: 100 } },
+    { exerciseKey: "shoulderFlexion", sets: 3, reps: 8, holdSeconds: 2, durationWeeks: 6, daysPerWeek: 4, timelinePhase: "Flexion Recovery (Wks 1–6)", angleOverrides: { targetAngle: 110 }, notes: "Target reduced to 110° for now." },
+    { exerciseKey: "shoulderRaise", sets: 3, reps: 8, durationWeeks: 4, daysPerWeek: 3, timelinePhase: "Elevation Phase (Wks 1–4)", angleOverrides: { targetAngle: 100 } },
   ],
   chen: [
-    { exerciseKey: "squat", sets: 3, reps: 10 },
-    { exerciseKey: "straightLegRaise", sets: 2, reps: 12 },
+    { exerciseKey: "squat", sets: 3, reps: 10, durationWeeks: 8, daysPerWeek: 4, timelinePhase: "Strength Phase (Wks 1–8)" },
+    { exerciseKey: "straightLegRaise", sets: 2, reps: 12, durationWeeks: 4, daysPerWeek: 3, timelinePhase: "Early Phase (Wks 1–4)" },
   ],
   dana: [
-    { exerciseKey: "hipAbduction", sets: 3, reps: 10, holdSeconds: 2 },
-    { exerciseKey: "gluteBridge", sets: 3, reps: 10, holdSeconds: 3 },
+    { exerciseKey: "hipAbduction", sets: 3, reps: 10, holdSeconds: 2, durationWeeks: 6, daysPerWeek: 4, timelinePhase: "Abductor Control (Wks 1–6)" },
+    { exerciseKey: "gluteBridge", sets: 3, reps: 10, holdSeconds: 3, durationWeeks: 6, daysPerWeek: 3, timelinePhase: "Pelvic Stability (Wks 1–6)" },
   ],
-  eve: [{ exerciseKey: "gluteBridge", sets: 3, reps: 12, holdSeconds: 5 }],
-  femi: [{ exerciseKey: "shoulderRaise", sets: 3, reps: 8, angleOverrides: { targetAngle: 90 } }],
+  eve: [{ exerciseKey: "gluteBridge", sets: 3, reps: 12, holdSeconds: 5, durationWeeks: 4, daysPerWeek: 5, timelinePhase: "Core Stability (Wks 1–4)" }],
+  femi: [
+    { exerciseKey: "rcTableSlideStage1", sets: 3, reps: 8, holdSeconds: 2, durationWeeks: 2, daysPerWeek: 5, timelinePhase: "Stage 1 (Weeks 0–2)", notes: "Stage 1 (Weeks 0-2): Keep movement minimal, smooth and pain-free (35° max)." },
+    { exerciseKey: "rcExternalRotationStage2", sets: 2, reps: 8, holdSeconds: 2, durationWeeks: 4, daysPerWeek: 3, timelinePhase: "Stage 2 (Weeks 3–6)", notes: "Tuck a rolled towel under the armpit; keep rotation gentle." },
+  ],
 };
 
 // Representative form cue per exercise for the fake history (matches the real cue wording).
@@ -51,6 +54,13 @@ const SEED_CUES = {
   shoulderFlexion: "Don't lean back, keep your trunk still",
   hipAbduction: "Stay upright, don't lean away from the leg",
   straightLegRaise: "Keep your knee locked straight",
+  rcTableSlideStage1: "Keep your back straight, don't lean back",
+  rcFlexionStage2: "Don't lean back to lift your arm",
+  rcFlexionStage3: "Keep your arm straight",
+  rcScaptionStage3: "Stay upright, don't lean sideways",
+  rcExternalRotationStage2: "Keep your elbow glued to your ribs",
+  rcExternalRotationStage3: "Keep your elbow glued to your ribs",
+  rcStandingRowStage3: "Keep your elbows lower, don't flare out",
 };
 
 export async function seedDatabase(db, { reset = false } = {}) {
@@ -87,6 +97,10 @@ export async function seedDatabase(db, { reset = false } = {}) {
     if (await prescriptions.countDocuments({ patientId: patient._id })) continue;
     for (const plan of PLANS[patient.username] ?? []) {
       const ex = EXERCISES[plan.exerciseKey];
+      const durationWeeks = plan.durationWeeks ?? 4;
+      const daysPerWeek = plan.daysPerWeek ?? 3;
+      const startDate = new Date(now - 7 * 86400e3);
+      const endDate = new Date(startDate.getTime() + durationWeeks * 7 * 86400e3);
       const pres = {
         patientId: patient._id,
         physioId: patient.physioId,
@@ -96,10 +110,15 @@ export async function seedDatabase(db, { reset = false } = {}) {
         reps: plan.reps,
         holdSeconds: plan.holdSeconds ?? 0,
         restSeconds: plan.restSeconds ?? 60,
+        durationWeeks,
+        daysPerWeek,
+        timelinePhase: plan.timelinePhase ?? `Phase 1 (${durationWeeks} wks)`,
+        startDate,
+        endDate,
         angleOverrides: plan.angleOverrides ?? null,
         notes: plan.notes ?? "",
         active: true,
-        createdAt: new Date(now - 7 * 86400e3),
+        createdAt: startDate,
         updatedAt: now,
       };
       const { insertedId } = await prescriptions.insertOne(pres);

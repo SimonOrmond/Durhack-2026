@@ -2,7 +2,7 @@
 //   camera -> PoseLandmarker -> joint angle -> smoothing -> RepCounter -> events -> UI + game
 
 import { createPoseTracker, startCamera, runDetectionLoop, loadMediaPipe } from "./pose.js";
-import { angle2D, pickSide, Smoother } from "./angles.js";
+import { angle2D, pickSide, sideVisibility, Smoother } from "./angles.js";
 import { EXERCISES, progressFromAngle, RepCounter, checkForm, splitPhases } from "./exercises.js";
 import { RunnerGame } from "./game.js";
 import { Api, requireUser, logout } from "./api.js";
@@ -64,14 +64,23 @@ const DEFAULT_REST_S = 60;
 
 async function loadPlan() {
   const el = $("plan");
+  let sessions = [];
   try {
-    plan = user.role === "patient" ? await Api.prescriptions(user._id) : [];
+    if (user.role === "patient") {
+      [plan, sessions] = await Promise.all([
+        Api.prescriptions(user._id),
+        Api.sessions(user._id, 100).catch(() => []),
+      ]);
+    } else {
+      plan = [];
+    }
   } catch (err) {
     el.innerHTML = `<div class="form-error">${err.message}</div>`;
     return;
   }
   if (!plan.length) {
     el.innerHTML = `<div class="muted small">${user.role === "patient" ? "Nothing prescribed yet. Use Free play below." : "Signed in as a physio: use Free play to try exercises."}</div>`;
+    renderPatientTimeline([], sessions);
     return;
   }
   el.innerHTML = "";
@@ -81,14 +90,25 @@ async function loadPlan() {
     card.dataset.id = pr._id;
     const ov = pr.angleOverrides?.targetAngle ? ` · target ${pr.angleOverrides.targetAngle}°` : "";
     const rest = pr.sets > 1 ? ` · rest ${pr.restSeconds ?? DEFAULT_REST_S}s` : "";
-    card.innerHTML = `<b>${esc(pr.exerciseName)}</b>
+    const weeks = pr.durationWeeks ?? 4;
+    const freq = pr.daysPerWeek ?? 3;
+    const phaseTag = pr.timelinePhase ? `<span class="timeline-tag">${esc(pr.timelinePhase)}</span>` : "";
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:6px">
+        <b>${esc(pr.exerciseName)}</b>
+        <span class="timeline-badge">${weeks} wks · ${freq}d/wk</span>
+      </div>
+      ${phaseTag ? `<div style="margin:2px 0">${phaseTag}</div>` : ""}
       <span class="muted">${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${rest}${ov}</span>
       ${pr.notes ? `<span class="note">“${esc(pr.notes)}”</span>` : ""}`;
     card.addEventListener("click", () => applyPrescription(pr));
     el.appendChild(card);
   }
+<<<<<<< HEAD
 <<<<<<< Updated upstream
 =======
+=======
+>>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
 
   // Pre-select first prescription if none active yet
   if (plan.length && !activePrescription) {
@@ -171,10 +191,15 @@ function renderPatientTimeline(planList, sessionsList) {
 
       const col = document.createElement("div");
       col.className = `day-col${isDone ? " completed" : ""}${isToday ? " today" : ""}`;
+<<<<<<< HEAD
       const daySessions = isDone ? sessionsByDay.get(k).sessions : [];
       const allIncomplete = isDone && daySessions.length > 0 && daySessions.every((s) => s.completedEarly);
       const doneIcon = isDone ? (allIncomplete ? "⚠" : "✓") : isToday ? "Today" : isFuture ? "·" : "—";
       const checkClass = isDone ? (allIncomplete ? "day-check incomplete" : "day-check") : "day-check pending";
+=======
+      const doneIcon = isDone ? "✓" : isToday ? "Today" : isFuture ? "·" : "—";
+      const checkClass = isDone ? "day-check" : "day-check pending";
+>>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
 
       col.innerHTML = `
         <div class="day-name">${dayNames[i]}</div>
@@ -288,6 +313,7 @@ function renderPatientTimeline(planList, sessionsList) {
           .join(" · ");
         const avgRomStr = romCount ? ` · Avg ROM ${Math.round((romSum / romCount) * 100)}%` : "";
 
+<<<<<<< HEAD
         // Determine whether any sessions that day were completed early
         const anyIncomplete = dayObj.sessions.some((s) => s.completedEarly);
         const allDayIncomplete = dayObj.sessions.length > 0 && dayObj.sessions.every((s) => s.completedEarly);
@@ -306,21 +332,31 @@ function renderPatientTimeline(planList, sessionsList) {
           ? `<div class="day-detail warn-text" style="color:var(--warn);font-size:11px;margin-top:2px">Incomplete: ${esc(incompleteDetail)}</div>`
           : ``;
 
+=======
+>>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
         const li = document.createElement("li");
         li.className = "completed-day-row";
         li.innerHTML = `
           <div>
             <div class="day-title">${esc(dateTitle)} <span class="muted small" style="font-weight:400;margin-left:4px">${d.toLocaleDateString([], { day: "numeric", month: "short" })}</span></div>
             <div class="day-detail">${esc(exSummaryStr)}${avgRomStr}</div>
+<<<<<<< HEAD
             ${incompleteNote}
           </div>
           ${dayBadge}
+=======
+          </div>
+          <span class="day-badge">✓ ${dayReps} reps</span>
+>>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
         `;
         historyList.appendChild(li);
       }
     }
   }
+<<<<<<< HEAD
 >>>>>>> Stashed changes
+=======
+>>>>>>> 3ec85ce7322e213d75b0a7bf439e29789d455363
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -336,13 +372,23 @@ async function applyPrescription(pr) {
   for (const c of $("plan").children) c.classList.toggle("active", c.dataset?.id === pr._id);
   stopRestTimer();
   resetCounters();
+  game.setConcentric(exercise.concentric);
+  game.setHoldTargetMs((pr.holdSeconds || 2) * 1000);
   recorder.start(exerciseKey, pr);
   $("set-progress").hidden = false;
   $("sp-exercise").textContent = pr.exerciseName;
   $("sp-sets").textContent = pr.sets;
   $("sp-reps").textContent = pr.reps;
   $("finish").hidden = false;
-  startSet();
+  if ($("start")) $("start").textContent = loop ? "Exercise in progress" : `Start ${pr.exerciseName}`;
+
+  if (loop) {
+    startSet();
+  } else {
+    setState = "ready";
+    game.pause("waiting");
+    setStatus(`Selected: ${pr.exerciseName}. Click Start exercise to begin.`);
+  }
 }
 
 function updateSetProgress() {
@@ -355,18 +401,25 @@ function updateSetProgress() {
   $("sp-state").textContent = setState === "resting" ? "Resting" : setState === "done" ? "Complete" : "Go";
   $("skip-rest").hidden = setState !== "resting";
   document.body.classList.toggle("resting", setState === "resting");
+  game.setResting(setState === "resting" || setState === "done");
 }
 
 /** Begin the next set: fresh rep counter, reps count again. */
 function startSet() {
   const pr = activePrescription;
   setState = "working";
+  if (loop && !loop.paused) {
+    game.resume();
+  } else {
+    game.pause("waiting");
+  }
   counter.reset();
   smoother.reset();
   $("reps").textContent = "0";
   updateSetProgress();
   flashCue(`Set ${recorder.setsCompleted + 1} of ${pr.sets}: ${pr.reps} reps. Go!`, "good");
   cueTimer = performance.now() + 2500;
+  if ($("start")) $("start").textContent = "Exercise in progress";
 }
 
 /** Called after each counted rep while a prescription is being worked: handles set boundaries. */
@@ -391,6 +444,8 @@ function onPrescribedRep(tempo = "") {
 function startRest() {
   const pr = activePrescription;
   setState = "resting";
+  game.pause("resting");
+  game.restText = `Rest ${(pr.restSeconds ?? DEFAULT_REST_S)}s · relax your arm`;
   restEndsAt = performance.now() + (pr.restSeconds ?? DEFAULT_REST_S) * 1000;
   counter.reset();
   flashCue(`Set ${recorder.setsCompleted} of ${pr.sets} done! Rest.`, "good");
@@ -405,6 +460,7 @@ function tickRest() {
   if (loop?.paused) return; // countdown frozen while paused
   const left = Math.max(0, restEndsAt - performance.now());
   $("sp-rest").textContent = `Rest ${fmtClock(left)}`;
+  game.restText = `Rest ${fmtClock(left)} · relax your arm`;
   if (left <= 0) {
     stopRestTimer();
     startSet();
@@ -430,6 +486,7 @@ $("skip-rest").addEventListener("click", () => {
 async function completeSession() {
   const pr = activePrescription;
   setState = "done";
+  game.pause("done");
   stopRestTimer();
   updateSetProgress();
   $("finish").hidden = true;
@@ -466,6 +523,7 @@ async function finishSession(silent = false) {
       card?.classList.add("done");
       card?.classList.remove("active");
     }
+    loadPlan();
   } catch (err) {
     flashCue(`Could not save session: ${err.message}`, "warn");
     cueTimer = performance.now() + 8000;
@@ -474,6 +532,7 @@ async function finishSession(silent = false) {
   // Free play dropdown starts something new. Manual finish (button) ends it the same way.
   if (setState !== "done") {
     setState = "done";
+    game.pause("done");
     stopRestTimer();
     updateSetProgress();
     $("finish").hidden = true;
@@ -503,6 +562,7 @@ loadPlan();
 const counter = new RepCounter();
 const smoother = new Smoother(0.35);
 const game = new RunnerGame($("game"));
+game.setConcentric(exercise.concentric);
 
 let lastCue = null;
 let cueTimer = 0;
@@ -522,6 +582,7 @@ counter.addEventListener("rep", (e) => {
 });
 counter.addEventListener("phase", (e) => {
   $("phase").textContent = e.detail.phase === "active" ? "At target" : "Rest";
+  if (setState !== "resting" && setState !== "done") game.onPhase(e.detail);
 });
 counter.addEventListener("hold", (e) => game.onHold(e.detail));
 counter.addEventListener("progress", (e) => {
@@ -536,11 +597,16 @@ function flashCue(text, kind) {
   cueTimer = performance.now() + 1200;
 }
 
+let lockedSide = null;      // locks to L or R while a rep is underway so side doesn't flip mid-rep
+let lastTrackedSide = null; // tracks the last side fed into smoother so switching L<->R resets the filter
+
 function resetCounters() {
   if (loop?.paused) setPaused(false);
   counter.reset();
   smoother.reset();
   game.reset();
+  lockedSide = null;
+  lastTrackedSide = null;
   $("reps").textContent = "0";
   $("rom").textContent = "—";
   $("phase").textContent = "—";
@@ -559,6 +625,7 @@ function resetAll() {
   } else {
     setState = "free";
     recorder.start(exerciseKey, null);
+    game.resume();
   }
 }
 
@@ -574,7 +641,10 @@ exerciseSelect.addEventListener("change", async () => {
   exercise = EXERCISES[exerciseKey];
   $("instructions").textContent = exercise.instructions;
   resetCounters();
+  game.setConcentric(exercise.concentric);
+  game.setResting(false);
   recorder.start(exerciseKey, null); // free play is still recorded
+  game.resume();
 });
 recorder.start(exerciseKey, null);
 $("reset").addEventListener("click", resetAll);
@@ -595,15 +665,54 @@ function onFrame({ landmarks, timestampMs, fps }) {
   }
 
   const aspect = video.videoWidth / video.videoHeight;
-  const [ia, ib, ic] = exercise.joints("L");
+  const fsRatio = exercise.foreshortenRatio ?? 0;
+  const [la, lb, lc] = exercise.joints("L");
   const [ra, rb, rc] = exercise.joints("R");
-  const s = pickSide(landmarks, [ia, ib, ic], [ra, rb, rc]);
-  const [a, b, c] = exercise.joints(s);
+  const visL = sideVisibility(landmarks, [la, lb, lc]);
+  const visR = sideVisibility(landmarks, [ra, rb, rc]);
 
-  const rawAngle = angle2D(landmarks[a], landmarks[b], landmarks[c], aspect);
+  let s;
+  if (lockedSide && (lockedSide === "L" ? visL : visR) >= 0.4) {
+    s = lockedSide;
+  } else if (visL >= 0.5 && visR >= 0.5 && Math.abs(visL - visR) < 0.25) {
+    // Both sides are clearly in frame (e.g. facing camera): track whichever limb is actively moving!
+    const progL = progressFromAngle(exercise, angle2D(landmarks[la], landmarks[lb], landmarks[lc], aspect, fsRatio));
+    const progR = progressFromAngle(exercise, angle2D(landmarks[ra], landmarks[rb], landmarks[rc], aspect, fsRatio));
+    if (Math.abs(progL - progR) > 0.14) {
+      s = progL > progR ? "L" : "R";
+    } else {
+      s = lastTrackedSide ?? (visL >= visR ? "L" : "R");
+    }
+  } else {
+    s = pickSide(landmarks, [la, lb, lc], [ra, rb, rc]);
+  }
+
+  if (lastTrackedSide && s !== lastTrackedSide) {
+    smoother.reset(); // don't blend old side's angle when switching between left and right limb
+  }
+  lastTrackedSide = s;
+
+  const [a, b, c] = exercise.joints(s);
+  const activeVis = s === "L" ? visL : visR;
+  if (activeVis < 0.35) {
+    $("status").textContent = "Move into frame so the active joints are clearly visible.";
+    drawSetOverlay();
+    return;
+  }
+
+  const rawAngle = exercise.calcAngle
+    ? exercise.calcAngle({ lm: landmarks, s, aspect, a, b, c })
+    : angle2D(landmarks[a], landmarks[b], landmarks[c], aspect, fsRatio);
   const angle = smoother.push(rawAngle);
   const progress = progressFromAngle(exercise, angle);
   counter.update(progress, timestampMs, angle);
+
+  // Lock onto this side while the limb is mid-rep; release the lock once back at rest
+  if (counter.phase === "active" || progress > 0.32) {
+    lockedSide = s;
+  } else if (progress < 0.18) {
+    lockedSide = null;
+  }
 
   // Form feedback (only while moving through the rep, so it doesn't nag at rest)
   if (progress > 0.3) {
@@ -696,7 +805,7 @@ function drawSetOverlay() {
   octx.textAlign = "center";
   octx.fillStyle = "#fff";
   if (setState === "resting") {
-    const left = Math.max(0, restEndsAt - performance.now());
+    const left = loop?.paused ? restRemainingMs : Math.max(0, restEndsAt - performance.now());
     octx.font = `bold ${Math.round(H * 0.22)}px system-ui`;
     octx.fillText(fmtClock(left), W / 2, H / 2 + H * 0.06);
     octx.font = `600 ${Math.round(H * 0.06)}px system-ui`;
@@ -722,7 +831,7 @@ function setPaused(paused) {
   if (paused) {
     if (setState === "resting") restRemainingMs = Math.max(0, restEndsAt - performance.now());
     loop.pause();
-    game.pause();
+    game.pause("paused");
     drawPausedVideoOverlay();
     setStatus("Paused");
     $("pause").textContent = "Resume";
@@ -733,9 +842,15 @@ function setPaused(paused) {
       counter.holdMs = 0;
       $("phase").textContent = "Rest";
     }
-    if (setState === "resting") restEndsAt = performance.now() + restRemainingMs;
+    if (setState === "resting") {
+      restEndsAt = performance.now() + restRemainingMs;
+      game.pause("resting");
+    } else if (setState === "done") {
+      game.pause("done");
+    } else {
+      game.resume();
+    }
     loop.resume();
-    game.resume();
     setStatus("Resumed");
     $("pause").textContent = "Pause";
   }
@@ -773,41 +888,67 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// ---- Start ----
+// ---- Start Exercise & Camera ----
 function setStatus(text, kind = "") {
   const el = $("status");
   el.textContent = text;
   el.className = `status ${kind}`;
 }
 
-$("start").addEventListener("click", async () => {
+async function startExercise() {
   const btn = $("start");
+  if (loop && !loop.paused) {
+    flashCue("Exercise is already in progress!", "good");
+    return;
+  }
   btn.disabled = true;
-  btn.textContent = "Starting…";
+  btn.textContent = "Starting camera…";
   try {
-    setStatus("Requesting camera… (allow it in the Chrome prompt)");
-    await startCamera(video);
-    const { landmarker, mp } = await createPoseTracker({ onStatus: setStatus });
-    drawer = new mp.DrawingUtils(octx);
-    connections = mp.PoseLandmarker.POSE_CONNECTIONS;
-    loop = runDetectionLoop(landmarker, video, onFrame);
-    btn.textContent = "Running";
-    $("pause").disabled = false;
+    if (!loop) {
+      setStatus("Starting camera… (allow camera access in browser prompt)");
+      await startCamera(video);
+      const { landmarker, mp } = await createPoseTracker({ onStatus: setStatus });
+      drawer = new mp.DrawingUtils(octx);
+      connections = mp.PoseLandmarker.POSE_CONNECTIONS;
+      loop = runDetectionLoop(landmarker, video, onFrame);
+      $("pause").disabled = false;
+    } else if (loop.paused) {
+      setPaused(false);
+    }
+    btn.textContent = "Exercise in progress";
+    btn.disabled = false;
+
+    // Start exercise and game now that camera has started
+    if (activePrescription) {
+      if (setState !== "working" && setState !== "resting") {
+        startSet();
+      } else {
+        game.resume();
+      }
+    } else {
+      setState = "free";
+      game.resume();
+      flashCue("Camera active! Do your reps in front of the screen.", "good");
+    }
+    setStatus("Exercise active · follow the movement on screen");
   } catch (err) {
     console.error(err);
     setStatus(`Error: ${err.message}`, "error");
     flashCue(err.message, "warn");
     cueTimer = performance.now() + 15000;
     btn.disabled = false;
-    btn.textContent = "Retry camera";
+    btn.textContent = "Retry start";
   }
-});
+}
 
-// Module is loaded: enable the button (it starts disabled in the HTML so a click before
-// scripts are ready can't silently do nothing). Warm the MediaPipe download in the background.
+$("start").addEventListener("click", startExercise);
+
+// Module is loaded: enable the Start exercise button.
 $("start").disabled = false;
-$("start").textContent = "Start camera";
-setStatus("Ready. Click Start camera.");
+if (!$("start").textContent.startsWith("Start ")) {
+  $("start").textContent = "Start exercise";
+}
+setStatus("Ready. Choose an exercise or click Start exercise.");
 loadMediaPipe(() => {}).catch(() => {});
 
 // Debug handle: lets tests and teammates poke the pipeline from the console, e.g.
