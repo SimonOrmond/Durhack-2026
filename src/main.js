@@ -4,7 +4,7 @@
 import { createPoseTracker, startCamera, runDetectionLoop, loadMediaPipe } from "./pose.js";
 import { angle2D, pickSide, sideVisibility, Smoother } from "./angles.js";
 import { EXERCISES, progressFromAngle, RepCounter, checkForm, splitPhases } from "./exercises.js";
-import { RunnerGame } from "./game.js";
+import { RunnerGame, RUNNER_STATES } from "./game.js";
 import { Api, requireUser, logout } from "./api.js";
 import { SessionRecorder } from "./session.js";
 
@@ -42,6 +42,8 @@ const exerciseSelect = $("exercise");
 let exerciseKey = exerciseSelect.value;
 let exercise = EXERCISES[exerciseKey];
 $("instructions").textContent = exercise.instructions;
+$("cue").textContent = exercise.instructions;
+$("cue").className = "cue neutral";
 
 $("user-chip").textContent = user.name;
 $("logout").addEventListener("click", logout);
@@ -108,6 +110,13 @@ async function loadPlan() {
   // Pre-select first prescription if none active yet
   if (plan.length && !activePrescription) {
     const firstPr = plan[0];
+    if (firstPr.exerciseKey !== "curl" && game.mode === "runner") {
+      game.setMode("glider");
+      if (gameModeSelect) gameModeSelect.value = "glider";
+      syncGameHelp("glider");
+      syncModeConstraints("glider");
+      drawIdleZoneOverlay();
+    }
     activePrescription = firstPr;
     exerciseKey = firstPr.exerciseKey;
     exercise = { ...EXERCISES[exerciseKey], ...(firstPr.angleOverrides ?? {}) };
@@ -342,6 +351,12 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 async function applyPrescription(pr) {
   if (recorder.active && recorder.reps.length) await finishSession(true);
   stopRestTimer();
+  if (pr.exerciseKey !== "curl" && game.mode === "runner") {
+    if (gameModeSelect) gameModeSelect.value = "glider";
+    game.setMode("glider");
+    syncModeConstraints("glider");
+    syncGameHelp("glider");
+  }
   activePrescription = pr;
   exerciseKey = pr.exerciseKey;
   exercise = { ...EXERCISES[exerciseKey], ...(pr.angleOverrides ?? {}) };
@@ -540,7 +555,74 @@ loadPlan();
 const counter = new RepCounter();
 const smoother = new Smoother(0.35);
 const game = new RunnerGame($("game"));
+const gameModeSelect = $("game-mode");
+
+const GLIDER_STATES = {
+  high: { state: "high", label: "HIGH ↑", short: "HIGH", color: "#a855f7", rgb: "168, 85, 247" },
+  mid: { state: "mid", label: "MID GLIDE", short: "MID", color: "#4fd1a0", rgb: "79, 209, 160" },
+  low: { state: "low", label: "LOW REST", short: "LOW", color: "#60a5fa", rgb: "96, 165, 250" },
+};
+
+function getAngleVisualState(mode, angle, progress, concentric) {
+  if (mode === "runner") {
+    return RUNNER_STATES[RunnerGame.stateFromAngle(angle, progress, concentric)];
+  }
+  if (progress >= 0.67) return GLIDER_STATES.high;
+  if (progress >= 0.33) return GLIDER_STATES.mid;
+  return GLIDER_STATES.low;
+}
+
+function syncGameHelp(mode) {
+  const el = $("game-help");
+  if (!el) return;
+  el.innerHTML =
+    mode === "runner"
+      ? "<b>Bicep Curl only:</b> <b>≤90°</b> Jump (green) · <b>90–121°</b> Run (blue) · <b>≥121°</b> Duck (amber)"
+      : "<b>Gradually raise &amp; lower</b> to follow the cave humps (longer hump = slower rep) · Collect <b>coins</b> &amp; beat your <b>PB</b>";
+}
+
+function syncModeConstraints(mode) {
+  for (const opt of exerciseSelect.querySelectorAll("option")) {
+    opt.disabled = mode === "runner" && opt.value !== "curl";
+  }
+  if (mode === "runner" && exerciseKey !== "curl") {
+    activePrescription = null;
+    setState = "free";
+    document.body.classList.remove("resting");
+    $("set-progress").hidden = true;
+    for (const c of $("plan").children) c.classList?.remove("active");
+    exerciseSelect.value = "curl";
+    exerciseKey = "curl";
+    exercise = EXERCISES.curl;
+    $("instructions").textContent = exercise.instructions;
+    resetCounters();
+    game.setConcentric(exercise.concentric);
+    game.setResting(false);
+    if (recorder.active) recorder.start(exerciseKey, null);
+  }
+  const labelEl = $("gauge-label");
+  if (labelEl) {
+    labelEl.innerHTML =
+      mode === "runner"
+        ? "<span>Duck ≥121°</span><span>Run 90–121°</span><span>Jump ≤90°</span>"
+        : "<span>Rest (0%)</span><span>Glide</span><span>Target (100%)</span>";
+  }
+  $("gauge-track")?.classList.toggle("runner-zones", mode === "runner");
+  if (mode !== "runner") {
+    $("phase").style.color = "";
+    $("gauge").style.backgroundColor = "";
+  }
+}
+
 game.setConcentric(exercise.concentric);
+game.setMode(gameModeSelect?.value ?? "glider");
+syncModeConstraints(game.mode);
+syncGameHelp(game.mode);
+gameModeSelect?.addEventListener("change", () => {
+  game.setMode(gameModeSelect.value);
+  syncModeConstraints(game.mode);
+  syncGameHelp(game.mode);
+});
 
 let lastCue = null;
 let cueTimer = 0;
@@ -559,14 +641,32 @@ counter.addEventListener("rep", (e) => {
   else flashCue(`Nice rep! ${tempo}`, "good");
 });
 counter.addEventListener("phase", (e) => {
-  $("phase").textContent = e.detail.phase === "active" ? "At target" : "Rest";
-  if (setState !== "resting" && setState !== "done") game.onPhase(e.detail);
+  const active = e.detail.phase === "active";
+  if (game.mode !== "runner") {
+    $("phase").textContent = active ? "At target ↑" : "Rest";
+    $("phase").classList.toggle("active-phase", active);
+  }
+  $("gauge").classList.toggle("at-target", active);
+  if (setState !== "resting" && setState !== "done") {
+    game.onPhase(e.detail);
+    if (active && game.mode !== "runner") {
+      flashCue("Target reached! Lower with control", "good");
+      cueTimer = performance.now() + 900;
+    }
+  }
 });
 counter.addEventListener("hold", (e) => game.onHold(e.detail));
 counter.addEventListener("progress", (e) => {
   $("gauge").style.width = `${Math.max(0, Math.min(1, e.detail.progress)) * 100}%`;
   game.onProgress(e.detail);
 });
+
+function setNeutralCue() {
+  const el = $("cue");
+  el.textContent = $("instructions").textContent || exercise.instructions;
+  el.className = "cue neutral";
+  cueTimer = 0;
+}
 
 function flashCue(text, kind) {
   const el = $("cue");
@@ -577,6 +677,111 @@ function flashCue(text, kind) {
 
 let lockedSide = null;      // locks to L or R while a rep is underway so side doesn't flip mid-rep
 let lastTrackedSide = null; // tracks the last side fed into smoother so switching L<->R resets the filter
+let prevRawL = null;
+let prevRawR = null;
+let velL = 0;
+let velR = 0;
+let lockedStaticFrames = 0;
+let lastZoneDir = 1;
+
+function drawCanvasText(ctx, text, x, y, isMirror, { color = "#fff", font = "bold 11px system-ui", align = "center", baseline = "middle" } = {}) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (isMirror) ctx.scale(-1, 1);
+  ctx.fillStyle = color;
+  ctx.font = font;
+  ctx.textAlign = align;
+  ctx.textBaseline = baseline;
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
+
+function drawAngleZonesOverlay(ctx, pa, pb, pc, visState, ex, mode, isMirror) {
+  const baseAng = Math.atan2(pa[1] - pb[1], pa[0] - pb[0]);
+  const foreAng = Math.atan2(pc[1] - pb[1], pc[0] - pb[0]);
+  const diff = ((foreAng - baseAng + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  if (Math.abs(diff) > 0.25 && Math.abs(diff) < 2.85) {
+    lastZoneDir = diff >= 0 ? 1 : -1;
+  }
+  const dir = lastZoneDir;
+  const rad = Math.max(54, Math.min(92, Math.hypot(pa[0] - pb[0], pa[1] - pb[1]) * 0.55));
+  const degToRad = Math.PI / 180;
+
+  let zones;
+  let boundaries;
+  if (mode === "runner") {
+    zones = [
+      { ...RUNNER_STATES.jumping, minDeg: 25, maxDeg: 90 },
+      { ...RUNNER_STATES.running, minDeg: 90, maxDeg: 121 },
+      { ...RUNNER_STATES.ducking, minDeg: 121, maxDeg: 170 },
+    ];
+    boundaries = [90, 121];
+  } else {
+    const angAt = (p) => ex.restAngle + p * (ex.targetAngle - ex.restAngle);
+    const span = (p0, p1) => {
+      const a0 = angAt(p0);
+      const a1 = angAt(p1);
+      return [Math.max(8, Math.min(a0, a1)), Math.min(176, Math.max(a0, a1))];
+    };
+    const [l0, l1] = span(0, 0.33);
+    const [m0, m1] = span(0.33, 0.67);
+    const [h0, h1] = span(0.67, 1.0);
+    zones = [
+      { ...GLIDER_STATES.low, minDeg: l0, maxDeg: l1 },
+      { ...GLIDER_STATES.mid, minDeg: m0, maxDeg: m1 },
+      { ...GLIDER_STATES.high, minDeg: h0, maxDeg: h1 },
+    ];
+    boundaries = [angAt(0.33), angAt(0.67)];
+  }
+
+  for (const z of zones) {
+    if (z.maxDeg - z.minDeg < 3) continue;
+    const a0 = baseAng + dir * z.minDeg * degToRad;
+    const a1 = baseAng + dir * z.maxDeg * degToRad;
+    const isActive = z.state === visState.state;
+
+    ctx.beginPath();
+    ctx.moveTo(pb[0], pb[1]);
+    ctx.arc(pb[0], pb[1], rad, a0, a1, dir < 0);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(${z.rgb}, ${isActive ? 0.34 : 0.14})`;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(pb[0], pb[1], rad, a0, a1, dir < 0);
+    ctx.strokeStyle = isActive ? z.color : `rgba(${z.rgb}, 0.45)`;
+    ctx.lineWidth = isActive ? 3.5 : 1.5;
+    ctx.stroke();
+
+    const midA = baseAng + dir * ((z.minDeg + z.maxDeg) / 2) * degToRad;
+    const lr = rad * 0.72;
+    drawCanvasText(ctx, z.short, pb[0] + Math.cos(midA) * lr, pb[1] + Math.sin(midA) * lr, isMirror, {
+      color: isActive ? "#ffffff" : `rgba(${z.rgb}, 0.92)`,
+      font: isActive ? "bold 11px system-ui" : "600 10px system-ui",
+    });
+  }
+
+  // Dashed transition boundary rays
+  ctx.save();
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+  ctx.lineWidth = 1.5;
+  for (const deg of boundaries) {
+    const ra = baseAng + dir * deg * degToRad;
+    ctx.beginPath();
+    ctx.moveTo(pb[0], pb[1]);
+    ctx.lineTo(pb[0] + Math.cos(ra) * (rad + 6), pb[1] + Math.sin(ra) * (rad + 6));
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Inner live angle arc
+  ctx.beginPath();
+  ctx.arc(pb[0], pb[1], 28, baseAng, foreAng, diff < 0);
+  ctx.strokeStyle = visState.color;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+}
 
 function resetCounters() {
   if (loop?.paused) setPaused(false);
@@ -585,10 +790,21 @@ function resetCounters() {
   game.reset();
   lockedSide = null;
   lastTrackedSide = null;
+  prevRawL = null;
+  prevRawR = null;
+  velL = 0;
+  velR = 0;
+  lockedStaticFrames = 0;
   $("reps").textContent = "0";
   $("rom").textContent = "—";
   $("phase").textContent = "—";
+  $("phase").style.color = "";
+  $("phase").classList.remove("active-phase");
+  if ($("angle")?.parentElement) $("angle").parentElement.style.color = "";
   $("gauge").style.width = "0%";
+  $("gauge").style.backgroundColor = "";
+  $("gauge").classList.remove("at-target");
+  setNeutralCue();
 }
 
 /** Reset button: clears counters and abandons the current session without saving. */
@@ -626,6 +842,16 @@ exerciseSelect.addEventListener("change", async () => {
 });
 recorder.start(exerciseKey, null);
 $("reset").addEventListener("click", resetAll);
+$("side")?.addEventListener("change", () => {
+  lockedSide = null;
+  lastTrackedSide = null;
+  lockedStaticFrames = 0;
+  smoother.reset();
+  counter.reset();
+  $("phase").textContent = "Rest";
+  $("phase").classList.remove("active-phase");
+  $("gauge").classList.remove("at-target");
+});
 $("mirror").addEventListener("change", (e) => document.body.classList.toggle("mirror", e.target.checked));
 document.body.classList.toggle("mirror", $("mirror").checked);
 $("debug").addEventListener("change", (e) => $("debug-out").classList.toggle("hidden", !e.target.checked));
@@ -637,32 +863,73 @@ function onFrame({ landmarks, timestampMs, fps }) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
 
   if (!landmarks) {
+    prevRawL = null;
+    prevRawR = null;
+    velL = 0;
+    velR = 0;
+    lockedStaticFrames = 0;
     $("status").textContent = "No person detected. Step back so your whole body is in frame.";
     drawSetOverlay();
     return;
   }
 
   const aspect = video.videoWidth / video.videoHeight;
-  const fsRatio = exercise.foreshortenRatio ?? 0;
+  const sidePref = $("side")?.value ?? "auto";
   const [la, lb, lc] = exercise.joints("L");
   const [ra, rb, rc] = exercise.joints("R");
   const visL = sideVisibility(landmarks, [la, lb, lc]);
   const visR = sideVisibility(landmarks, [ra, rb, rc]);
 
+  const rawL = visL >= 0.3
+    ? (exercise.calcAngle ? exercise.calcAngle({ lm: landmarks, s: "L", aspect, a: la, b: lb, c: lc }) : angle2D(landmarks[la], landmarks[lb], landmarks[lc], aspect))
+    : null;
+  const rawR = visR >= 0.3
+    ? (exercise.calcAngle ? exercise.calcAngle({ lm: landmarks, s: "R", aspect, a: ra, b: rb, c: rc }) : angle2D(landmarks[ra], landmarks[rb], landmarks[rc], aspect))
+    : null;
+  velL = rawL != null && prevRawL != null ? velL * 0.65 + Math.abs(rawL - prevRawL) * 0.35 : velL * 0.65;
+  velR = rawR != null && prevRawR != null ? velR * 0.65 + Math.abs(rawR - prevRawR) * 0.35 : velR * 0.65;
+  prevRawL = rawL;
+  prevRawR = rawR;
+
   let s;
-  if (lockedSide && (lockedSide === "L" ? visL : visR) >= 0.4) {
-    s = lockedSide;
-  } else if (visL >= 0.5 && visR >= 0.5 && Math.abs(visL - visR) < 0.25) {
-    // Both sides are clearly in frame (e.g. facing camera): track whichever limb is actively moving!
-    const progL = progressFromAngle(exercise, angle2D(landmarks[la], landmarks[lb], landmarks[lc], aspect, fsRatio));
-    const progR = progressFromAngle(exercise, angle2D(landmarks[ra], landmarks[rb], landmarks[rc], aspect, fsRatio));
-    if (Math.abs(progL - progR) > 0.14) {
-      s = progL > progR ? "L" : "R";
+  if (sidePref === "L" || sidePref === "R") {
+    s = sidePref;
+    lockedSide = null;
+    lockedStaticFrames = 0;
+  } else if (lockedSide && (lockedSide === "L" ? visL : visR) >= 0.4) {
+    const lockedVel = lockedSide === "L" ? velL : velR;
+    const otherSide = lockedSide === "L" ? "R" : "L";
+    const otherVel = otherSide === "L" ? velL : velR;
+    const otherVis = otherSide === "L" ? visL : visR;
+    if (lockedVel < 0.7 && otherVel > 1.8 && otherVis >= 0.5) {
+      lockedStaticFrames += 1;
     } else {
-      s = lastTrackedSide ?? (visL >= visR ? "L" : "R");
+      lockedStaticFrames = 0;
+    }
+    if (lockedStaticFrames >= 15) {
+      // Stationary arm (e.g. hand resting on chin) was locked while the other arm is actively exercising.
+      lockedSide = null;
+      lockedStaticFrames = 0;
+      counter.reset();
+      smoother.reset();
+      $("phase").textContent = "Rest";
+      $("phase").classList.remove("active-phase");
+      $("gauge").classList.remove("at-target");
+      s = otherSide;
+    } else {
+      s = lockedSide;
     }
   } else {
-    s = pickSide(landmarks, [la, lb, lc], [ra, rb, rc]);
+    lockedStaticFrames = 0;
+    if (visL >= 0.45 && visR >= 0.45) {
+      if (Math.abs(velL - velR) > 1.0) {
+        s = velL > velR ? "L" : "R";
+      } else {
+        s = lastTrackedSide ?? (visL >= visR ? "L" : "R");
+      }
+    } else {
+      s = pickSide(landmarks, [la, lb, lc], [ra, rb, rc]);
+    }
   }
 
   if (lastTrackedSide && s !== lastTrackedSide) {
@@ -678,9 +945,11 @@ function onFrame({ landmarks, timestampMs, fps }) {
     return;
   }
 
-  const rawAngle = exercise.calcAngle
-    ? exercise.calcAngle({ lm: landmarks, s, aspect, a, b, c })
-    : angle2D(landmarks[a], landmarks[b], landmarks[c], aspect, fsRatio);
+  const rawAngle = (s === "L" ? rawL : rawR) ?? (
+    exercise.calcAngle
+      ? exercise.calcAngle({ lm: landmarks, s, aspect, a, b, c })
+      : angle2D(landmarks[a], landmarks[b], landmarks[c], aspect)
+  );
   const angle = smoother.push(rawAngle);
   const progress = progressFromAngle(exercise, angle);
   counter.update(progress, timestampMs, angle);
@@ -688,8 +957,9 @@ function onFrame({ landmarks, timestampMs, fps }) {
   // Lock onto this side while the limb is mid-rep; release the lock once back at rest
   if (counter.phase === "active" || progress > 0.32) {
     lockedSide = s;
-  } else if (progress < 0.18) {
+  } else if (progress < 0.22) {
     lockedSide = null;
+    lockedStaticFrames = 0;
   }
 
   // Form feedback (only while moving through the rep, so it doesn't nag at rest)
@@ -702,9 +972,7 @@ function onFrame({ landmarks, timestampMs, fps }) {
     lastCue = cue;
   }
   if (cueTimer && performance.now() > cueTimer) {
-    $("cue").innerHTML = "&nbsp;";
-    $("cue").className = "cue";
-    cueTimer = 0;
+    setNeutralCue();
   }
 
   // Only the three joints that define this exercise are drawn, to keep the view clean.
@@ -715,36 +983,60 @@ function onFrame({ landmarks, timestampMs, fps }) {
   }
   const W = overlay.width, H = overlay.height;
   const px = (lm) => [lm.x * W, lm.y * H];
-  octx.strokeStyle = "#ff6ad5";
+  const pa = px(landmarks[a]);
+  const pb = px(landmarks[b]);
+  const pc = px(landmarks[c]);
+  const isMirror = document.body.classList.contains("mirror");
+  const visState = getAngleVisualState(game.mode, angle, progress, exercise.concentric);
+
+  drawAngleZonesOverlay(octx, pa, pb, pc, visState, exercise, game.mode, isMirror);
+
+  octx.strokeStyle = visState.color;
   octx.lineWidth = 5;
   octx.beginPath();
-  octx.moveTo(...px(landmarks[a]));
-  octx.lineTo(...px(landmarks[b]));
-  octx.lineTo(...px(landmarks[c]));
+  octx.moveTo(...pa);
+  octx.lineTo(...pb);
+  octx.lineTo(...pc);
   octx.stroke();
-  for (const i of [a, b, c]) {
-    octx.fillStyle = "#ff6ad5";
+  for (const pt of [pa, pb, pc]) {
+    octx.fillStyle = visState.color;
     octx.beginPath();
-    octx.arc(...px(landmarks[i]), 7, 0, Math.PI * 2);
+    octx.arc(pt[0], pt[1], 7, 0, Math.PI * 2);
     octx.fill();
   }
-  // Angle label at the vertex (un-mirrored text if mirror is on)
-  const [bx, by] = px(landmarks[b]);
+
+  // Color-coded angle + state pill at the joint vertex (un-mirrored if mirror is on)
+  const [bx, by] = pb;
+  const badgeText = `${Math.round(angle)}° · ${visState.label}`;
   octx.save();
-  if (document.body.classList.contains("mirror")) {
-    octx.translate(W, 0);
-    octx.scale(-1, 1);
-    octx.fillStyle = "#fff";
-    octx.font = "bold 20px system-ui";
-    octx.fillText(`${Math.round(angle)}°`, W - bx + 12, by - 12);
-  } else {
-    octx.fillStyle = "#fff";
-    octx.font = "bold 20px system-ui";
-    octx.fillText(`${Math.round(angle)}°`, bx + 12, by - 12);
-  }
+  octx.translate(bx, by - 20);
+  if (isMirror) octx.scale(-1, 1);
+  octx.font = "bold 15px system-ui";
+  const tw = octx.measureText(badgeText).width;
+  const rx = 12;
+  octx.fillStyle = "rgba(10, 14, 22, 0.82)";
+  octx.fillRect(rx, -14, tw + 16, 26);
+  octx.strokeStyle = visState.color;
+  octx.lineWidth = 2;
+  octx.strokeRect(rx, -14, tw + 16, 26);
+  octx.fillStyle = visState.color;
+  octx.textBaseline = "middle";
+  octx.fillText(badgeText, rx + 8, -1);
   octx.restore();
 
-  $("angle").textContent = Math.round(angle);
+  const angleEl = $("angle");
+  angleEl.textContent = Math.round(angle);
+  if (angleEl.parentElement) angleEl.parentElement.style.color = visState.color;
+  const phaseEl = $("phase");
+  if (game.mode === "runner") {
+    phaseEl.textContent = visState.label;
+    phaseEl.style.color = visState.color;
+    phaseEl.classList.remove("active-phase");
+    $("gauge").style.backgroundColor = visState.color;
+  } else {
+    phaseEl.style.color = "";
+    $("gauge").style.backgroundColor = "";
+  }
   $("status").textContent = `Tracking (${s === "L" ? "left" : "right"} side) · ${fps.toFixed(0)} fps`;
   drawSetOverlay();
 
@@ -817,8 +1109,11 @@ function setPaused(paused) {
     smoother.reset();
     if (counter.phase === "active") {
       counter.phase = "rest";
+      counter.minAfterPeak = null;
       counter.holdMs = 0;
       $("phase").textContent = "Rest";
+      $("phase").classList.remove("active-phase");
+      $("gauge").classList.remove("at-target");
     }
     if (setState === "resting") {
       restEndsAt = performance.now() + restRemainingMs;

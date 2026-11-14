@@ -108,34 +108,14 @@ function calcExternalRotationAngle({ lm, s, aspect }) {
 
 export const EXERCISES = {
   // --- Upper-body exercises first (default in UI) -----------------------------
-  curl: {
-    name: "Elbow flexion (bicep curl)",
-    group: "Elbow",
-    concentric: "toTarget", // curling the hand up is the upward/lifting phase
-    foreshortenRatio: 0.88, // compensates when forearm curls straight toward the webcam
-    instructions: "Face the camera, arm by your side. Curl your hand up towards your shoulder to jump, then lower with control.",
-    joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW), side(s, LM.L_WRIST, LM.R_WRIST)],
-    restAngle: 155,
-    targetAngle: 55,
-    formChecks: [
-      {
-        test: ({ lm, s, aspect }) => {
-          const sh = lm[side(s, LM.L_SHOULDER, LM.R_SHOULDER)];
-          const el = lm[side(s, LM.L_ELBOW, LM.R_ELBOW)];
-          return tiltFromVertical(sh, el, aspect) > 35 ? "Keep your elbow tucked in" : null;
-        },
-      },
-    ],
-  },
-
   shoulderRaise: {
     name: "Shoulder abduction (arm raise)",
     group: "Shoulder",
     concentric: "toTarget",
-    instructions: "Face the camera. Raise one arm out to the side up to shoulder height to jump, then lower slowly.",
+    instructions: "Face the camera. Raise one arm out to the side up to shoulder height to glide or jump, then lower slowly.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW)],
-    restAngle: 20,
-    targetAngle: 105,
+    restAngle: 22,
+    targetAngle: 100,
     formChecks: [trunkUpright(16, "Keep your torso upright")],
   },
 
@@ -143,7 +123,6 @@ export const EXERCISES = {
     name: "Shoulder flexion (forward arm raise)",
     group: "Shoulder",
     concentric: "toTarget",
-    foreshortenRatio: 0.9,
     instructions: "Stand side-on or angled to the camera, arm straight by your side. Raise the arm forwards and up to jump, then lower slowly.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_WRIST, LM.R_WRIST)],
     restAngle: 20,
@@ -156,6 +135,25 @@ export const EXERCISES = {
           const hip = lm[side(s, LM.L_HIP, LM.R_HIP)];
           const sh = lm[side(s, LM.L_SHOULDER, LM.R_SHOULDER)];
           return tiltFromVertical(hip, sh, aspect) > 20 ? "Don't lean back, keep your trunk still" : null;
+        },
+      },
+    ],
+  },
+
+  curl: {
+    name: "Elbow flexion (bicep curl)",
+    group: "Elbow",
+    concentric: "toTarget", // curling the hand up is the upward/lifting phase
+    instructions: "Face or angle slightly to the camera. Hold ~90–120° to RUN, curl up (≤90°) to JUMP, and extend your arm down (≥121°) to DUCK.",
+    joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW), side(s, LM.L_WRIST, LM.R_WRIST)],
+    restAngle: 148,
+    targetAngle: 58,
+    formChecks: [
+      {
+        test: ({ lm, s, aspect }) => {
+          const sh = lm[side(s, LM.L_SHOULDER, LM.R_SHOULDER)];
+          const el = lm[side(s, LM.L_ELBOW, LM.R_ELBOW)];
+          return tiltFromVertical(sh, el, aspect) > 42 ? "Keep your elbow tucked in" : null;
         },
       },
     ],
@@ -185,7 +183,6 @@ export const EXERCISES = {
     name: "Seated knee extension",
     group: "Knee",
     concentric: "toTarget",
-    foreshortenRatio: 0.85,
     instructions: "Sit side-on to the camera. Straighten the knee up to jump, hold briefly, then lower.",
     joints: (s) => [side(s, LM.L_HIP, LM.R_HIP), side(s, LM.L_KNEE, LM.R_KNEE), side(s, LM.L_ANKLE, LM.R_ANKLE)],
     restAngle: 95,
@@ -362,7 +359,7 @@ export class RepCounter extends EventTarget {
    * enterTarget / exitTarget: hysteresis on 0..1 progress. A rep is counted on rest → target → rest.
    * plateauBand: how close to the peak (in progress units) still counts as "holding at the top".
    */
-  constructor({ enterTarget = 0.75, exitTarget = 0.22, minRepMs = 320, plateauBand = 0.06 } = {}) {
+  constructor({ enterTarget = 0.65, exitTarget = 0.30, minRepMs = 260, plateauBand = 0.06 } = {}) {
     super();
     this.enterTarget = enterTarget;
     this.exitTarget = exitTarget;
@@ -375,6 +372,7 @@ export class RepCounter extends EventTarget {
     this.phase = "rest"; // "rest" | "active"
     this.count = 0;
     this.maxProgress = 0;
+    this.minAfterPeak = null;
     this.peakAngle = null;
     this.repStart = 0;         // left the rest zone heading for the target
     this.leaveRestAt = null;
@@ -415,14 +413,18 @@ export class RepCounter extends EventTarget {
         this.repStart = this.leaveRestAt ?? tMs;
         this.reachTargetAt = tMs;
         this.maxProgress = p;
+        this.minAfterPeak = p;
         this.peakAngle = angle;
-        this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase, progress: p } }));
+        this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase, progress: p, angle } }));
       }
     } else {
       this.samples.push([tMs, p]);
       if (p > this.maxProgress) {
         this.maxProgress = p;
+        this.minAfterPeak = p;
         this.peakAngle = angle;
+      } else if (this.minAfterPeak == null || p < this.minAfterPeak) {
+        this.minAfterPeak = p;
       }
       // Live hold estimate for the game: time spent within the plateau band of the current peak.
       const band = this.maxProgress - this.plateauBand;
@@ -431,7 +433,13 @@ export class RepCounter extends EventTarget {
       this.holdMs = holdStart == null ? 0 : tMs - holdStart;
       this.dispatchEvent(new CustomEvent("hold", { detail: { holdMs: this.holdMs } }));
 
-      if (p <= this.exitTarget) {
+      const turnedAround =
+        this.minAfterPeak != null &&
+        this.minAfterPeak <= 0.45 &&
+        this.maxProgress - this.minAfterPeak >= 0.35 &&
+        p - this.minAfterPeak >= 0.14;
+
+      if (p <= this.exitTarget || turnedAround) {
         const { unobservedToTargetMs, unobservedToRestMs, ...phases } = this.#splitPhases(tMs);
         const durationMs = phases.toTargetMs + phases.holdMs + phases.toRestMs;
         // Gap since the previous rep, minus the slices of movement that happen below exitTarget
@@ -442,9 +450,10 @@ export class RepCounter extends EventTarget {
             : Math.max(0, Math.round(this.repStart - this.lastRepEnd - unobservedToTargetMs - this.lastUnobservedToRestMs));
         this.lastUnobservedToRestMs = unobservedToRestMs;
         this.phase = "rest";
+        this.minAfterPeak = null;
         this.leaveRestAt = null;
         this.samples = [];
-        this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase } }));
+        this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase, progress: p, angle } }));
         if (durationMs >= this.minRepMs) {
           this.count += 1;
           this.lastRom = Math.min(1.3, this.maxProgress);
@@ -461,12 +470,16 @@ export class RepCounter extends EventTarget {
             })
           );
         }
+        if (p > this.exitTarget) {
+          this.leaveRestAt = tMs;
+          this.samples = [[tMs, p]];
+        }
         this.lastRepEnd = tMs;
         this.holdMs = 0;
       }
     }
 
-    this.dispatchEvent(new CustomEvent("progress", { detail: { progress: p, phase: this.phase } }));
+    this.dispatchEvent(new CustomEvent("progress", { detail: { progress: p, phase: this.phase, angle } }));
   }
 
   /** Split the in-flight rep into toTarget / hold / toRest using the plateau around the peak. */

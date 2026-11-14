@@ -15,6 +15,19 @@
       <label>Free play
         <select id="exercise"></select>
       </label>
+      <label>Game
+        <select id="game-mode">
+          <option value="glider">Cave Glider</option>
+          <option value="runner">Dino Runner</option>
+        </select>
+      </label>
+      <label>Side
+        <select id="side">
+          <option value="auto">Auto</option>
+          <option value="R">Right</option>
+          <option value="L">Left</option>
+        </select>
+      </label>
       <label><input type="checkbox" id="mirror" checked /> Mirror</label>
       <label><input type="checkbox" id="debug" /> Debug</label>
       <button id="start" class="btn-start" disabled>Loading scripts…</button>
@@ -25,7 +38,7 @@
   </header>
 
   <main class="patient-main">
-    <!-- Sticky live dock: keeps Camera, Game, and live HUD side-by-side on half-screens and pinned while scrolling -->
+    <!-- Camera + Game side-by-side layout -->
     <section class="live-dock">
       <div class="live-grid">
         <div class="camera-pane">
@@ -37,10 +50,11 @@
         </div>
 
         <div class="game-pane">
-          <canvas id="game" width="640" height="300"></canvas>
-          <div class="game-help">
-            <b>Game:</b> each upward lift or stand-up makes the runner jump. Bigger range of motion = higher jump.
-            Holding the target position charges the shield.
+          <div class="game-wrap">
+            <canvas id="game" width="760" height="450"></canvas>
+            <div class="game-help" id="game-help">
+              <b>Gradually raise &amp; lower</b> to follow the cave humps (longer hump = slower rep) · Collect <b>coins</b> &amp; beat your <b>PB</b>
+            </div>
           </div>
         </div>
       </div>
@@ -67,14 +81,15 @@
 
         <div class="gauge-and-cue">
           <div class="gauge">
-            <div class="gauge-label"><span>Rest</span><span>Target</span></div>
-            <div class="gauge-track">
+            <div class="gauge-label" id="gauge-label"><span>Rest</span><span>Target</span></div>
+            <div class="gauge-track" id="gauge-track">
               <div class="gauge-fill" id="gauge"></div>
-              <div class="gauge-mark" style="left:22%"></div>
-              <div class="gauge-mark" style="left:75%"></div>
+              <div class="gauge-mark" style="left:30%"></div>
+              <div class="gauge-mark" style="left:65%"></div>
             </div>
           </div>
-          <div class="cue" id="cue">&nbsp;</div>
+          <div class="cue neutral" id="cue">&nbsp;</div>
+          <div id="instructions" class="hidden"></div>
         </div>
       </div>
 
@@ -88,12 +103,8 @@
       </div>
     </section>
 
-    <!-- Scrollable lower content: instructions, Today's plan, debug readout -->
+    <!-- Lower content: Today's plan and debug readout -->
     <section class="lower-content">
-      <div class="instructions-card">
-        <div class="instructions" id="instructions"></div>
-      </div>
-
       <div class="plan-section">
         <h3 style="margin-top:0">Today's plan <span class="muted small" id="plan-hint">from your physio</span></h3>
         <div id="plan" class="plan"><div class="muted small">Loading…</div></div>
