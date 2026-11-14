@@ -5,7 +5,7 @@
 //   GET  /api/physios/:id/patients           patients belonging to a physio
 //   GET  /api/patients/:id                   one patient
 //   GET  /api/patients/:id/prescriptions     active prescriptions (?all=1 for inactive too)
-//   POST /api/prescriptions                  create (physio only)
+//   POST /api/prescriptions                  create (physio only); emails the patient a summary (see mailer.js)
 //   PATCH /api/prescriptions/:id             edit sets/reps/tempo/etc. (physio only; exercise is fixed)
 //   DELETE /api/prescriptions/:id            deactivate (physio only)
 //   POST /api/sessions                       save a completed session (patient); adds its coins to users.coins
@@ -25,6 +25,7 @@ import { connect, getDb, isMemory } from "./db.js";
 import { seedDatabase } from "./seed.js";
 import { EXERCISES } from "../src/exercises.js";
 import { normaliseRep, summarise, normaliseGame, scorePerformance } from "./metrics.js";
+import { sendPrescriptionEmail, emailConfigured } from "./mailer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -171,7 +172,13 @@ app.post(
       updatedAt: now,
     };
     const { insertedId } = await getDb().collection("prescriptions").insertOne(doc);
-    res.status(201).json({ _id: insertedId, ...doc });
+    // Email the patient a summary. The prescription is already saved, so a mail failure only
+    // shows up as a status message on the physio page.
+    const patient = await getDb().collection("users").findOne({ _id: patientId });
+    const email = await sendPrescriptionEmail({ kind: "new", prescription: { _id: insertedId, ...doc }, patient, physio: req.user });
+    if (email.sent) console.log(`[mail] prescription summary sent to ${email.to}`);
+    else console.log(`[mail] not sent: ${email.skipped ?? email.error}`);
+    res.status(201).json({ _id: insertedId, ...doc, email });
   })
 );
 
@@ -364,4 +371,11 @@ if (isMemory() || process.env.SEED_ON_START === "1") {
   // In-memory DB starts empty every time, so seed it here. For Atlas run `npm run seed` once.
   await seedDatabase(db);
 }
-app.listen(PORT, () => console.log(`[server] http://localhost:${PORT}  (login page)`));
+app.listen(PORT, () => {
+  console.log(`[server] http://localhost:${PORT}  (login page)`);
+  console.log(
+    emailConfigured()
+      ? `[mail] prescription emails ON (from ${process.env.GMAIL_USER}${process.env.EMAIL_TO ? `, all sent to ${process.env.EMAIL_TO}` : ""})`
+      : "[mail] prescription emails OFF (set GMAIL_USER and GMAIL_APP_PASSWORD in .env)"
+  );
+});

@@ -282,7 +282,7 @@ $("prescribe-form").addEventListener("submit", async (e) => {
   btn.disabled = true;
   $("p-status").textContent = "Sending…";
   try {
-    await Api.createPrescription({
+    const created = await Api.createPrescription({
       patientId: selected._id,
       exerciseKey: $("p-exercise").value,
       sets: $("p-sets").value,
@@ -303,7 +303,10 @@ $("prescribe-form").addEventListener("submit", async (e) => {
       })(),
       notes: $("p-notes").value,
     });
-    $("p-status").textContent = `Sent to ${selected.name} ✓`;
+    const mail = created.email;
+    $("p-status").textContent =
+      `Sent to ${selected.name} ✓` +
+      (mail?.sent ? ` · 📧 summary emailed to ${mail.to}` : mail?.error ? ` · ⚠ email failed: ${mail.error}` : mail?.skipped ? ` · email not sent (${mail.skipped})` : "");
     $("p-notes").value = "";
     await loadPrescriptions();
   } catch (err) {
