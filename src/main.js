@@ -64,14 +64,23 @@ const DEFAULT_REST_S = 60;
 
 async function loadPlan() {
   const el = $("plan");
+  let sessions = [];
   try {
-    plan = user.role === "patient" ? await Api.prescriptions(user._id) : [];
+    if (user.role === "patient") {
+      [plan, sessions] = await Promise.all([
+        Api.prescriptions(user._id),
+        Api.sessions(user._id, 100).catch(() => []),
+      ]);
+    } else {
+      plan = [];
+    }
   } catch (err) {
     el.innerHTML = `<div class="form-error">${err.message}</div>`;
     return;
   }
   if (!plan.length) {
     el.innerHTML = `<div class="muted small">${user.role === "patient" ? "Nothing prescribed yet. Use Free play below." : "Signed in as a physio: use Free play to try exercises."}</div>`;
+    renderPatientTimeline([], sessions);
     return;
   }
   el.innerHTML = "";
@@ -81,11 +90,209 @@ async function loadPlan() {
     card.dataset.id = pr._id;
     const ov = pr.angleOverrides?.targetAngle ? ` · target ${pr.angleOverrides.targetAngle}°` : "";
     const rest = pr.sets > 1 ? ` · rest ${pr.restSeconds ?? DEFAULT_REST_S}s` : "";
-    card.innerHTML = `<b>${esc(pr.exerciseName)}</b>
+    const weeks = pr.durationWeeks ?? 4;
+    const freq = pr.daysPerWeek ?? 3;
+    const phaseTag = pr.timelinePhase ? `<span class="timeline-tag">${esc(pr.timelinePhase)}</span>` : "";
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:6px">
+        <b>${esc(pr.exerciseName)}</b>
+        <span class="timeline-badge">${weeks} wks · ${freq}d/wk</span>
+      </div>
+      ${phaseTag ? `<div style="margin:2px 0">${phaseTag}</div>` : ""}
       <span class="muted">${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${rest}${ov}</span>
       ${pr.notes ? `<span class="note">“${esc(pr.notes)}”</span>` : ""}`;
     card.addEventListener("click", () => applyPrescription(pr));
     el.appendChild(card);
+  }
+
+  renderPatientTimeline(plan, sessions);
+}
+
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function renderPatientTimeline(planList, sessionsList) {
+  const container = $("timeline-section");
+  if (!container) return;
+  if (user.role !== "patient") {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+
+  // 1. Group sessions by calendar day
+  const sessionsByDay = new Map();
+  for (const s of sessionsList) {
+    const d = new Date(s.startedAt);
+    const k = dateKey(d);
+    if (!sessionsByDay.has(k)) sessionsByDay.set(k, { date: d, sessions: [] });
+    sessionsByDay.get(k).sessions.push(s);
+  }
+  const totalDaysDone = sessionsByDay.size;
+  let totalRepsAllTime = 0;
+  for (const s of sessionsList) totalRepsAllTime += s.summary?.repCount ?? (s.reps?.length || 0);
+
+  // Badge pill
+  const badgeEl = $("timeline-stats-badge");
+  if (badgeEl) {
+    badgeEl.innerHTML = `<span class="badge-pill">🔥 ${totalDaysDone} completed workout ${totalDaysDone === 1 ? "day" : "days"} · ${totalRepsAllTime} total reps</span>`;
+  }
+
+  // 2. Weekly Activity Grid (Monday - Sunday of current week)
+  const now = new Date();
+  const dayOfWeek = (now.getDay() + 6) % 7; // 0 = Mon, 6 = Sun
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+
+  const weekLabelEl = $("calendar-week-label");
+  if (weekLabelEl) {
+    weekLabelEl.textContent = `${monday.toLocaleDateString([], { day: "numeric", month: "short" })} – ${sunday.toLocaleDateString([], { day: "numeric", month: "short" })}`;
+  }
+
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const weekGridEl = $("week-grid");
+  let daysCompletedThisWeek = 0;
+
+  if (weekGridEl) {
+    weekGridEl.innerHTML = "";
+    for (let i = 0; i < 7; i++) {
+      const colDate = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+      const k = dateKey(colDate);
+      const isDone = sessionsByDay.has(k);
+      const isToday = k === dateKey(now);
+      const isFuture = colDate.setHours(0, 0, 0, 0) > now.setHours(0, 0, 0, 0);
+      if (isDone) daysCompletedThisWeek++;
+
+      const col = document.createElement("div");
+      col.className = `day-col${isDone ? " completed" : ""}${isToday ? " today" : ""}`;
+      const doneIcon = isDone ? "✓" : isToday ? "Today" : isFuture ? "·" : "—";
+      const checkClass = isDone ? "day-check" : "day-check pending";
+
+      col.innerHTML = `
+        <div class="day-name">${dayNames[i]}</div>
+        <div class="day-num">${colDate.getDate()}</div>
+        <div class="${checkClass}">${doneIcon}</div>
+      `;
+      weekGridEl.appendChild(col);
+    }
+  }
+
+  const targetFreq = planList.length ? Math.max(...planList.map((p) => p.daysPerWeek || 3)) : 3;
+  const weekSummaryEl = $("week-summary");
+  if (weekSummaryEl) {
+    weekSummaryEl.textContent = `${daysCompletedThisWeek} of ${targetFreq} target days this week (${Math.min(100, Math.round((daysCompletedThisWeek / targetFreq) * 100))}%)`;
+  }
+
+  // 3. Programme Timeline of Prescribed Exercises
+  const timelineGrid = $("timeline-cards-grid");
+  if (timelineGrid) {
+    if (!planList.length) {
+      timelineGrid.innerHTML = `<div class="muted small">No active prescribed programme yet. Use Free play above.</div>`;
+    } else {
+      timelineGrid.innerHTML = "";
+      for (const pr of planList) {
+        const weeks = pr.durationWeeks ?? 4;
+        const freq = pr.daysPerWeek ?? 3;
+        const phase = pr.timelinePhase || "Active Phase";
+        const start = pr.startDate ? new Date(pr.startDate) : new Date(pr.createdAt || Date.now());
+        const end = pr.endDate ? new Date(pr.endDate) : new Date(start.getTime() + weeks * 7 * 86400e3);
+        const msSinceStart = Date.now() - start.getTime();
+        const activeWeek = Math.min(weeks, Math.max(1, Math.ceil(msSinceStart / (7 * 86400e3))));
+
+        // Unique days completed for this exercise
+        const exSessions = sessionsList.filter((s) => s.exerciseKey === pr.exerciseKey);
+        const daysDoneForEx = new Set(exSessions.map((s) => dateKey(new Date(s.startedAt)))).size;
+        const totalTargetDays = weeks * freq;
+        const progressPct = Math.min(100, Math.round((daysDoneForEx / Math.max(1, totalTargetDays)) * 100));
+
+        const item = document.createElement("div");
+        item.className = "timeline-item";
+        item.title = "Click to start this exercise";
+        item.innerHTML = `
+          <div class="timeline-item-head">
+            <div>
+              <b style="font-size:14px">${esc(pr.exerciseName)}</b>
+              <div style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap">
+                <span class="timeline-tag">${esc(phase)}</span>
+                <span class="timeline-badge">Week ${activeWeek} of ${weeks}</span>
+              </div>
+            </div>
+            <span class="muted small" style="text-align:right">
+              ${daysDoneForEx} / ${totalTargetDays} days<br>
+              <b style="color:var(--accent)">${progressPct}%</b>
+            </span>
+          </div>
+          <div class="timeline-bar-wrap">
+            <div class="timeline-bar-fill" style="width: ${progressPct}%"></div>
+          </div>
+          <div class="muted small" style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;font-size:11px">
+            <span>${pr.sets} sets × ${pr.reps} reps · ${freq} days/wk</span>
+            <span>Ends ${end.toLocaleDateString([], { day: "numeric", month: "short" })}</span>
+          </div>
+        `;
+        item.addEventListener("click", () => applyPrescription(pr));
+        timelineGrid.appendChild(item);
+      }
+    }
+  }
+
+  // 4. Completed Workout Days History Log
+  const historyList = $("completed-days-list");
+  const historyCount = $("history-count");
+  if (historyList) {
+    const sortedDays = [...sessionsByDay.entries()].sort((a, b) => b[1].date - a[1].date);
+    if (historyCount) historyCount.textContent = `${sortedDays.length} workout days logged`;
+
+    if (!sortedDays.length) {
+      historyList.innerHTML = `<li class="muted small">No workout days recorded yet. Complete a set above to log your first day!</li>`;
+    } else {
+      historyList.innerHTML = "";
+      for (const [k, dayObj] of sortedDays.slice(0, 10)) {
+        const d = dayObj.date;
+        const isToday = k === dateKey(new Date());
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const isYesterday = k === dateKey(yesterday);
+
+        const dateTitle = isToday
+          ? "Today"
+          : isYesterday
+          ? "Yesterday"
+          : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+
+        let dayReps = 0;
+        let romSum = 0;
+        let romCount = 0;
+        const exMap = new Map();
+
+        for (const s of dayObj.sessions) {
+          const reps = s.summary?.repCount ?? (s.reps?.length || 0);
+          dayReps += reps;
+          if (s.summary?.avgRom) {
+            romSum += s.summary.avgRom;
+            romCount++;
+          }
+          exMap.set(s.exerciseName, (exMap.get(s.exerciseName) || 0) + reps);
+        }
+
+        const exSummaryStr = [...exMap.entries()]
+          .map(([name, reps]) => `${name} (${reps} reps)`)
+          .join(" · ");
+        const avgRomStr = romCount ? ` · Avg ROM ${Math.round((romSum / romCount) * 100)}%` : "";
+
+        const li = document.createElement("li");
+        li.className = "completed-day-row";
+        li.innerHTML = `
+          <div>
+            <div class="day-title">${esc(dateTitle)} <span class="muted small" style="font-weight:400;margin-left:4px">${d.toLocaleDateString([], { day: "numeric", month: "short" })}</span></div>
+            <div class="day-detail">${esc(exSummaryStr)}${avgRomStr}</div>
+          </div>
+          <span class="day-badge">✓ ${dayReps} reps</span>
+        `;
+        historyList.appendChild(li);
+      }
+    }
   }
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -240,6 +447,7 @@ async function finishSession(silent = false) {
       card?.classList.add("done");
       card?.classList.remove("active");
     }
+    loadPlan();
   } catch (err) {
     flashCue(`Could not save session: ${err.message}`, "warn");
     cueTimer = performance.now() + 8000;
@@ -375,7 +583,6 @@ function onFrame({ landmarks, timestampMs, fps }) {
   const visL = sideVisibility(landmarks, [la, lb, lc]);
   const visR = sideVisibility(landmarks, [ra, rb, rc]);
 
-<<<<<<< Updated upstream
   let s;
   if (lockedSide && (lockedSide === "L" ? visL : visR) >= 0.4) {
     s = lockedSide;
@@ -405,12 +612,9 @@ function onFrame({ landmarks, timestampMs, fps }) {
     return;
   }
 
-  const rawAngle = angle2D(landmarks[a], landmarks[b], landmarks[c], aspect, fsRatio);
-=======
   const rawAngle = exercise.calcAngle
     ? exercise.calcAngle({ lm: landmarks, s, aspect, a, b, c })
-    : angle2D(landmarks[a], landmarks[b], landmarks[c], aspect);
->>>>>>> Stashed changes
+    : angle2D(landmarks[a], landmarks[b], landmarks[c], aspect, fsRatio);
   const angle = smoother.push(rawAngle);
   const progress = progressFromAngle(exercise, angle);
   counter.update(progress, timestampMs, angle);

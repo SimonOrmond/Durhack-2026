@@ -260,3 +260,36 @@ table.rep-table tbody tr { cursor: default; }
 .sp-rest { color: var(--warn); margin-left: 6px; font-variant-numeric: tabular-nums; }
 .sp-actions { display: flex; gap: 6px; }
 .resting .set-progress { border-color: var(--warn); }
+
+/* ---- timeline & activity tracking ---- */
+.timeline-section { display: grid; gap: 14px; margin-top: 10px; }
+.timeline-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.timeline-tag { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: rgba(127,179,255,.12); color: #7fb3ff; border: 1px solid rgba(127,179,255,.25); }
+.timeline-badge { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: rgba(79,209,160,.12); color: var(--accent); border: 1px solid rgba(79,209,160,.25); }
+.badge-pill { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); color: var(--text); }
+.calendar-card, .programme-timeline-card, .completed-history-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 12px; }
+.calendar-head, .timeline-card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.week-summary { font-size: 13px; font-weight: 600; color: var(--accent); }
+.week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.day-col { text-align: center; padding: 10px 4px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.015); transition: all .15s ease; }
+.day-col.completed { border-color: var(--accent); background: rgba(79,209,160,.12); }
+.day-col.today { border-color: var(--warn); box-shadow: 0 0 10px rgba(242,184,75,.2); }
+.day-name { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 600; }
+.day-num { font-size: 16px; font-weight: 700; margin: 4px 0; }
+.day-check { font-size: 14px; font-weight: 800; color: var(--accent); }
+.day-check.pending { color: var(--muted); font-size: 11px; }
+.timeline-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.timeline-item { border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.015); padding: 12px; display: grid; gap: 8px; cursor: pointer; transition: all .15s ease; }
+.timeline-item:hover { border-color: var(--accent); background: rgba(79,209,160,.03); }
+.timeline-item-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.timeline-bar-wrap { background: var(--line); border-radius: 4px; height: 6px; overflow: hidden; margin-top: 4px; width: 100%; }
+.timeline-bar-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width .3s ease; }
+.completed-days-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 280px; overflow-y: auto; }
+.completed-day-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(255,255,255,.015); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.completed-day-row .day-title { font-weight: 600; color: var(--text); }
+.completed-day-row .day-detail { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.completed-day-row .day-badge { font-size: 11px; font-weight: 600; color: var(--accent); background: rgba(79,209,160,.12); padding: 3px 8px; border-radius: 10px; white-space: nowrap; }
+@media (max-width: 600px) {
+  .week-grid { grid-template-columns: repeat(4, 1fr); }
+  .day-num { font-size: 14px; }
+}

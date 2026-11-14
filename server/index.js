@@ -131,6 +131,9 @@ app.post(
     const reps = Math.max(1, Math.min(100, Number(b.reps) || 10));
     const holdSeconds = Math.max(0, Math.min(60, Number(b.holdSeconds) || 0));
     const restSeconds = b.restSeconds === undefined || b.restSeconds === "" ? 60 : Math.max(0, Math.min(600, Number(b.restSeconds) || 0));
+    const durationWeeks = Math.max(1, Math.min(52, Number(b.durationWeeks) || 4));
+    const daysPerWeek = Math.max(1, Math.min(7, Number(b.daysPerWeek) || 3));
+    const timelinePhase = String(b.timelinePhase ?? "").slice(0, 100);
     let angleOverrides = null;
     if (b.angleOverrides && typeof b.angleOverrides === "object") {
       angleOverrides = {};
@@ -141,6 +144,8 @@ app.post(
       if (!Object.keys(angleOverrides).length) angleOverrides = null;
     }
     const now = new Date();
+    const startDate = b.startDate ? new Date(b.startDate) : now;
+    const endDate = new Date(startDate.getTime() + durationWeeks * 7 * 86400e3);
     const doc = {
       patientId,
       physioId: req.user._id,
@@ -150,6 +155,11 @@ app.post(
       reps,
       holdSeconds,
       restSeconds,
+      durationWeeks,
+      daysPerWeek,
+      timelinePhase,
+      startDate,
+      endDate,
       angleOverrides,
       notes: String(b.notes ?? "").slice(0, 500),
       active: true,
