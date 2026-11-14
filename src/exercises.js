@@ -75,7 +75,7 @@ export const EXERCISES = {
     name: "Elbow flexion (bicep curl)",
     group: "Elbow",
     concentric: "toTarget", // curling the hand up is the upward/lifting phase
-    instructions: "Face the camera, arm by your side. Curl your hand up towards your shoulder to jump, then lower with control.",
+    instructions: "Face or angle slightly to the camera. Hold ~90–120° to RUN, curl up (≤90°) to JUMP, and extend your arm down (≥121°) to DUCK.",
     joints: (s) => [side(s, LM.L_SHOULDER, LM.R_SHOULDER), side(s, LM.L_ELBOW, LM.R_ELBOW), side(s, LM.L_WRIST, LM.R_WRIST)],
     restAngle: 148,
     targetAngle: 58,
@@ -243,7 +243,7 @@ export class RepCounter extends EventTarget {
         this.maxProgress = p;
         this.minAfterPeak = p;
         this.peakAngle = angle;
-        this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase, progress: p } }));
+        this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase, progress: p, angle } }));
       }
     } else {
       this.samples.push([tMs, p]);
@@ -281,7 +281,7 @@ export class RepCounter extends EventTarget {
         this.minAfterPeak = null;
         this.leaveRestAt = null;
         this.samples = [];
-        this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase } }));
+        this.dispatchEvent(new CustomEvent("phase", { detail: { phase: this.phase, progress: p, angle } }));
         if (durationMs >= this.minRepMs) {
           this.count += 1;
           this.lastRom = Math.min(1.3, this.maxProgress);
@@ -307,7 +307,7 @@ export class RepCounter extends EventTarget {
       }
     }
 
-    this.dispatchEvent(new CustomEvent("progress", { detail: { progress: p, phase: this.phase } }));
+    this.dispatchEvent(new CustomEvent("progress", { detail: { progress: p, phase: this.phase, angle } }));
   }
 
   /** Split the in-flight rep into toTarget / hold / toRest using the plateau around the peak. */

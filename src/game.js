@@ -8,7 +8,29 @@ const PB_KEYS = {
   runner: "durhack_dino_pb",
 };
 
+export const RUNNER_STATES = {
+  jumping: { state: "jumping", label: "JUMPING ↑", short: "JUMP", color: "#4fd1a0", rgb: "79, 209, 160" },
+  running: { state: "running", label: "RUNNING →", short: "RUN", color: "#60a5fa", rgb: "96, 165, 250" },
+  ducking: { state: "ducking", label: "DUCKING ↓", short: "DUCK", color: "#f59e0b", rgb: "245, 158, 11" },
+};
+
 export class RunnerGame {
+  static stateFromAngle(angle, progress, concentric = "toTarget") {
+    if (concentric === "toRest") {
+      const p = progress ?? 0;
+      if (p >= 0.45) return "ducking";
+      if (p <= 0.25) return "jumping";
+      return "running";
+    }
+    const a =
+      typeof angle === "number" && Number.isFinite(angle)
+        ? angle
+        : 148 - Math.max(0, Math.min(1.2, progress ?? 0.5)) * 90;
+    if (a <= 90) return "jumping";
+    if (a >= 121) return "ducking";
+    return "running";
+  }
+
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
@@ -113,6 +135,8 @@ export class RunnerGame {
     this.lastProgress = 0;
     this.currentProgress = 0;
     this.targetProgress = 0;
+    this.runnerState = "running";
+    this.currentAngle = 105;
     this.duckTimer = 0;
     this.groundOffset = 0;
     this.animClock = 0;
@@ -181,7 +205,7 @@ export class RunnerGame {
   }
 
   // ---- pipeline event handlers ----
-  onPhase({ phase, progress = 0.85 }) {
+  onPhase({ phase, progress = 0.85, angle }) {
     if (this.paused) return;
     if (this.mode === "glider") {
       if (typeof progress === "number") {
@@ -189,15 +213,13 @@ export class RunnerGame {
       }
       return;
     }
-    if (phase === "active") {
+    if (typeof angle === "number" && Number.isFinite(angle)) {
+      this.currentAngle = angle;
+      this.runnerState = RunnerGame.stateFromAngle(angle, progress, this.concentric);
+    }
+    if (phase === "active" && !this.didLiftJump && this.runnerState === "jumping") {
       this.peakInActive = Math.max(this.peakInActive, progress);
-      if (this.concentric === "toTarget") {
-        if (!this.didLiftJump) {
-          this.didLiftJump = this.triggerJump(progress);
-        }
-      } else {
-        this.didLiftJump = false;
-      }
+      this.didLiftJump = this.triggerJump(progress);
     }
   }
 
@@ -215,10 +237,14 @@ export class RunnerGame {
       });
       return;
     }
-    // Jump on rep completion only if we haven't already jumped during the upward movement
-    if (!this.didLiftJump) {
-      this.triggerJump(rom);
-    }
+    // Reps complete at arm extension (Ducking zone), so award a rep bonus instead of jumping
+    this.addScore(10);
+    this.popups.push({
+      x: this.player.x + 12,
+      y: Math.max(62, this.player.y - 44),
+      text: "+10 REP",
+      life: 0.75,
+    });
     this.didLiftJump = false;
     this.peakInActive = 0;
   }
@@ -229,52 +255,52 @@ export class RunnerGame {
     if (this.shield >= 1) this.shieldActive = true;
   }
 
-  onProgress({ progress, phase }) {
+  onProgress({ progress, phase, angle }) {
     if (this.paused) return;
     const p = Math.max(0, Math.min(1.2, progress));
-    const dp = p - this.lastProgress;
     this.lastProgress = p;
     this.currentProgress = p;
+    this.currentAngle =
+      typeof angle === "number" && Number.isFinite(angle)
+        ? angle
+        : Math.round(148 - p * 90);
 
     if (this.mode === "glider") {
       this.targetProgress = Math.max(0, Math.min(1.05, progress));
       return;
     }
 
-    if (this.concentric === "toTarget") {
-      // Continuing higher during active phase boosts jump arc to reach high coins
-      if (phase === "active" && p > this.peakInActive) {
+    const nextState = RunnerGame.stateFromAngle(angle, p, this.concentric);
+    this.runnerState = nextState;
+
+    if (nextState === "jumping") {
+      this.duckTimer = 0;
+      this.player.ducking = false;
+      if (!this.didLiftJump) {
+        this.peakInActive = Math.max(this.peakInActive, p);
+        this.didLiftJump = this.triggerJump(Math.max(0.75, p));
+      } else if (p > this.peakInActive) {
         const extra = p - this.peakInActive;
         this.peakInActive = p;
         this.lastJumpRom = p;
         if (!this.player.onGround && this.player.vy < 0) {
           this.player.vy = Math.max(-670, this.player.vy - 190 * extra);
         }
-      } else if (phase === "rest" && dp > 0.015 && p >= 0.58 && !this.didLiftJump) {
-        // Early responsive jump on clear upward lifts before reaching full enterTarget
-        this.peakInActive = Math.max(this.peakInActive, p);
-        this.didLiftJump = this.triggerJump(p);
       }
-
-      if (p > this.peakInActive) this.peakInActive = p;
-
-      // Downward eccentric movement (lowering limb): duck Dino Dan
-      if ((dp < -0.012 && this.peakInActive >= 0.45) || (phase === "active" && p < this.peakInActive - 0.10)) {
-        this.duckTimer = 0.85;
-      }
-
-      if (phase === "rest" && p <= 0.30) {
-        this.peakInActive = 0;
-        this.didLiftJump = false;
-      }
+    } else if (nextState === "running") {
+      this.duckTimer = 0;
+      this.player.ducking = false;
+      this.didLiftJump = false;
+      this.peakInActive = 0;
     } else {
-      // Squat (concentric === "toRest"): squat down to duck, stand up to jump
-      if (p >= 0.35 && this.player.onGround) {
-        this.duckTimer = 0.35;
+      this.didLiftJump = false;
+      this.peakInActive = 0;
+      this.duckTimer = 0.35;
+      if (!this.player.onGround && this.player.vy < 220) {
+        this.player.vy = 220;
       }
-      if (p > this.peakInActive) this.peakInActive = p;
-      if (this.peakInActive >= 0.45 && dp < -0.02 && p <= 0.60 && !this.didLiftJump) {
-        this.didLiftJump = this.triggerJump(Math.max(0.85, this.peakInActive));
+      if (this.player.onGround) {
+        this.player.ducking = true;
       }
     }
   }
@@ -411,13 +437,7 @@ export class RunnerGame {
       }
 
       this.duckTimer = Math.max(0, this.duckTimer - dt);
-      const highAhead = this.obstacles.some(
-        (o) => o.type === "high" && !o.hit && o.x >= p.x - 10 && o.x <= p.x + 140
-      );
-      if (highAhead && this.concentric === "toTarget" && this.currentProgress <= 0.35 && p.onGround) {
-        this.duckTimer = Math.max(this.duckTimer, 0.25);
-      }
-      p.ducking = p.onGround && this.duckTimer > 0;
+      p.ducking = p.onGround && (this.runnerState === "ducking" || this.duckTimer > 0);
     }
 
     this.groundOffset = (this.groundOffset + this.speed * dt) % 48;
@@ -642,6 +662,65 @@ export class RunnerGame {
     ctx.fillText("0%", 11, botCenterY + 13);
   }
 
+  #drawRunnerZoneGauge(ctx) {
+    const { W, groundY, runnerState, currentAngle } = this;
+    const trackX = 12;
+    const trackW = 10;
+    const topY = 64;
+    const botY = groundY - 22;
+    const trackH = Math.max(60, botY - topY);
+
+    // 58° at top (max jump) down to 148° at bottom (rest/duck)
+    const y90 = topY + ((90 - 58) / 90) * trackH;
+    const y121 = topY + ((121 - 58) / 90) * trackH;
+    const bands = [
+      { ...RUNNER_STATES.jumping, y0: topY, y1: y90 },
+      { ...RUNNER_STATES.running, y0: y90, y1: y121 },
+      { ...RUNNER_STATES.ducking, y0: y121, y1: botY },
+    ];
+
+    ctx.fillStyle = "rgba(15, 18, 24, 0.58)";
+    ctx.fillRect(6, topY - 10, 48, trackH + 20);
+
+    for (const b of bands) {
+      const active = runnerState === b.state;
+      ctx.fillStyle = `rgba(${b.rgb}, ${active ? 0.88 : 0.26})`;
+      ctx.fillRect(trackX, b.y0, trackW, Math.max(2, b.y1 - b.y0));
+      ctx.fillStyle = active ? b.color : "rgba(184, 196, 216, 0.55)";
+      ctx.font = active ? "bold 9px system-ui" : "600 8px system-ui";
+      ctx.fillText(b.short, trackX + trackW + 4, (b.y0 + b.y1) / 2 + 3);
+    }
+
+    // Threshold dividers at 90° and 121°
+    ctx.fillStyle = "rgba(232, 236, 243, 0.45)";
+    ctx.fillRect(trackX - 2, y90 - 0.5, trackW + 4, 1);
+    ctx.fillRect(trackX - 2, y121 - 0.5, trackW + 4, 1);
+
+    // Live angle marker dot on the zone gauge
+    const norm = Math.max(0, Math.min(1, (currentAngle - 58) / 90));
+    const curY = topY + norm * trackH;
+    const activeInfo = RUNNER_STATES[runnerState] || RUNNER_STATES.running;
+    ctx.fillStyle = activeInfo.color;
+    ctx.beginPath();
+    ctx.arc(trackX + trackW / 2, curY, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(trackX + trackW / 2, curY, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // State pill at top-right under the HUD bar
+    const pillW = 112;
+    const pillX = W - pillW - 12;
+    const pillY = 54;
+    ctx.fillStyle = `rgba(${activeInfo.rgb}, 0.2)`;
+    ctx.fillRect(pillX, pillY, pillW, 22);
+    ctx.fillStyle = activeInfo.color;
+    ctx.fillRect(pillX, pillY, 3, 22);
+    ctx.font = "bold 11px system-ui";
+    ctx.fillText(`${activeInfo.label} ${Math.round(currentAngle)}°`, pillX + 8, pillY + 15);
+  }
+
   #drawObstaclesAndCoins(ctx) {
     if (this.mode === "glider" && this.coinItems.length > 1) {
       const trails = new Map();
@@ -797,6 +876,8 @@ export class RunnerGame {
 
     if (this.mode === "glider") {
       this.#drawAltitudeGauge(ctx, p);
+    } else {
+      this.#drawRunnerZoneGauge(ctx);
     }
 
     if (this.shieldActive) {
