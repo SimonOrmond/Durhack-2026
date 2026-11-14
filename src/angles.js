@@ -3,6 +3,7 @@
 // MediaPipe Pose landmark indices (33 points).
 export const LM = {
   NOSE: 0,
+  L_EAR: 7, R_EAR: 8,
   L_SHOULDER: 11, R_SHOULDER: 12,
   L_ELBOW: 13, R_ELBOW: 14,
   L_WRIST: 15, R_WRIST: 16,
@@ -34,7 +35,7 @@ export function angle3D(a, b, c) {
 
 /** Angle of the segment a->b from vertical, in degrees (0 = perfectly vertical). */
 export function tiltFromVertical(a, b, aspect = 1) {
-  const dx = (b.x - a.x) * aspect, dy = b.y - a.y;
+  const dx = (b.x - a.x) * aspect, dy = Math.abs(b.y - a.y);
   return Math.abs((Math.atan2(dx, dy) * 180) / Math.PI);
 }
 
