@@ -4,8 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sign in · Physio</title>
-  <link rel="icon" href="data:," />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="src/styles.css" />
+  <script>
+    // Apply saved display settings before first paint (see src/a11y.js).
+    try {
+      var t = localStorage.getItem("physio.theme");
+      if (t) document.documentElement.dataset.theme = t;
+      if (localStorage.getItem("physio.bold") === "1") document.documentElement.dataset.bold = "1";
+    } catch (e) {}
+  </script>
 </head>
 <body class="login-page">
   <main class="login-card">
@@ -27,10 +38,11 @@
         <tr><td>Physio</td><td>dr.lee</td><td>physio</td></tr>
         <tr><td>Patient</td><td>alice, bob, chen</td><td>patient</td></tr>
         <tr><td>Patient</td><td>dana, eve, femi</td><td>patient</td></tr>
+        <tr><td>Patient (Demo)</td><td>demo</td><td>patient</td></tr>
       </table>
-      <p class="muted small">Run <code>npm run seed</code> if these don't exist yet.</p>
     </details>
   </main>
   <script type="module" src="src/login.js"></script>
+  <script type="module" src="src/a11y.js"></script>
 </body>
 </html>

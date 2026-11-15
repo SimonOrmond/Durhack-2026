@@ -45,10 +45,25 @@ const oid = (s) => {
 const publicUser = ({ password, ...u }) => u;
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
+let dbReady = null;
+function ensureDb() {
+  if (!dbReady) {
+    dbReady = connect().then(async (d) => {
+      if (isMemory() || process.env.SEED_ON_START === "1") {
+        // In-memory DB starts empty every time, so seed it here. For Atlas run `npm run seed` once.
+        await seedDatabase(d);
+      }
+      return d;
+    });
+  }
+  return dbReady;
+}
+
 /** Loads the requesting user from x-user-id. Optional: route decides if it's required. */
 app.use(
   "/api",
   wrap(async (req, _res, next) => {
+    await ensureDb();
     const id = oid(req.get("x-user-id"));
     req.user = id ? await getDb().collection("users").findOne({ _id: id }) : null;
     next();
@@ -132,9 +147,11 @@ function prescriptionFields(b, ex) {
     }
     if (!Object.keys(angleOverrides).length) angleOverrides = null;
   }
+  const unlimited = Boolean(b.unlimited || b.reps === null || b.reps === "");
   return {
     sets: Math.max(1, Math.min(20, Number(b.sets) || 1)),
-    reps: Math.max(1, Math.min(100, Number(b.reps) || 10)),
+    reps: unlimited ? null : Math.max(1, Math.min(100, Number(b.reps) || 10)),
+    unlimited,
     holdSeconds: Math.max(0, Math.min(60, Number(b.holdSeconds) || 0)),
     restSeconds: b.restSeconds === undefined || b.restSeconds === "" ? 60 : Math.max(0, Math.min(600, Number(b.restSeconds) || 0)),
     durationWeeks,
@@ -196,7 +213,7 @@ app.patch(
     if (!ex) return res.status(400).json({ error: `Unknown exerciseKey "${existing.exerciseKey}"` });
 
     const b = req.body ?? {};
-    const editable = ["sets", "reps", "holdSeconds", "restSeconds", "durationWeeks", "daysPerWeek", "timelinePhase", "tempo", "angleOverrides", "notes"];
+    const editable = ["sets", "reps", "unlimited", "holdSeconds", "restSeconds", "durationWeeks", "daysPerWeek", "timelinePhase", "tempo", "angleOverrides", "notes"];
     const merged = { ...existing };
     for (const k of editable) if (k in b) merged[k] = b[k];
     const fields = prescriptionFields(merged, ex);
@@ -366,16 +383,16 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message });
 });
 
-const db = await connect();
-if (isMemory() || process.env.SEED_ON_START === "1") {
-  // In-memory DB starts empty every time, so seed it here. For Atlas run `npm run seed` once.
-  await seedDatabase(db);
+if (!process.env.VERCEL) {
+  await ensureDb();
+  app.listen(PORT, () => {
+    console.log(`[server] http://localhost:${PORT}  (login page)`);
+    console.log(
+      emailConfigured()
+        ? `[mail] prescription emails ON (from ${process.env.GMAIL_USER}${process.env.EMAIL_TO ? `, all sent to ${process.env.EMAIL_TO}` : ""})`
+        : "[mail] prescription emails OFF (set GMAIL_USER and GMAIL_APP_PASSWORD in .env)"
+    );
+  });
 }
-app.listen(PORT, () => {
-  console.log(`[server] http://localhost:${PORT}  (login page)`);
-  console.log(
-    emailConfigured()
-      ? `[mail] prescription emails ON (from ${process.env.GMAIL_USER}${process.env.EMAIL_TO ? `, all sent to ${process.env.EMAIL_TO}` : ""})`
-      : "[mail] prescription emails OFF (set GMAIL_USER and GMAIL_APP_PASSWORD in .env)"
-  );
-});
+
+export default app;

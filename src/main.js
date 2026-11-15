@@ -1,13 +1,14 @@
 // Wires the pipeline together:
 //   camera -> PoseLandmarker -> joint angle -> smoothing -> RepCounter -> events -> UI + game
 
-import { createPoseTracker, startCamera, runDetectionLoop, loadMediaPipe } from "./pose.js";
+import { createPoseTracker, startCamera, runDetectionLoop, loadMediaPipe, listCameras, VIRTUAL_CAM_RE } from "./pose.js";
 import { angle2D, pickSide, sideVisibility, Smoother } from "./angles.js";
 import { EXERCISES, progressFromAngle, RepCounter, checkForm, splitPhases } from "./exercises.js";
 import { RunnerGame, RUNNER_STATES, TEMPOS, DEFAULT_TEMPO } from "./game.js";
 import { Api, requireUser, logout } from "./api.js";
 import { SessionRecorder } from "./session.js";
 import { tempoOf, repTempoScore, tempoDirection } from "./tempo.js";
+import { initMuscleDemo } from "./muscle-demo.js";
 
 // Must be signed in (any role: physios can try the patient view too).
 const user = requireUser();
@@ -49,8 +50,8 @@ function syncExerciseBanner(trackedSide = null) {
   const isCurl = exerciseKey === "curl";
   el.classList.toggle("is-curl", isCurl);
   el.textContent = isCurl
-    ? `💪 ACTIVE MOVEMENT: BICEP CURL · ${sideLabel}`
-    : `Movement: ${exercise.name} · ${sideLabel}`;
+    ? `Bicep Curl · ${sideLabel}`
+    : `${exercise.name} · ${sideLabel}`;
 }
 function syncDefaultSide(ex) {
   const sideEl = $("side");
@@ -66,6 +67,21 @@ syncDefaultSide(exercise);
 $("instructions").textContent = exercise.instructions;
 $("cue").textContent = exercise.instructions;
 $("cue").className = "cue neutral";
+
+const muscleDemo = initMuscleDemo({
+  canvas: $("muscle-demo-canvas"),
+  primaryEl: $("demo-primary-muscles"),
+  secondaryEl: $("demo-secondary-muscles"),
+  cuesEl: $("demo-form-cues"),
+  romEl: $("demo-rom-meta"),
+  tempoBadgeEl: $("demo-tempo-badge"),
+  viewLabelEl: $("demo-view-label"),
+  titleEl: $("demo-exercise-title"),
+  playBtn: $("demo-play-toggle"),
+  toggleBtn: $("toggle-muscle-demo"),
+  bodyEl: $("muscle-demo-body"),
+});
+muscleDemo.setExercise(exerciseKey, exercise, DEFAULT_TEMPO, $("side")?.value === "L" ? "L" : "R");
 
 $("user-chip").textContent = user.name;
 $("logout").addEventListener("click", logout);
@@ -90,6 +106,8 @@ let restEndsAt = 0;       // performance.now() when the rest ends
 let restRemainingMs = 0;  // remaining rest while paused
 let restTicker = null;
 const DEFAULT_REST_S = 60;
+const isUnlimited = (pr) => Boolean(pr && (pr.unlimited || pr.reps == null));
+const fmtVolume = (pr) => (isUnlimited(pr) ? "Unlimited reps" : `${pr.sets} sets × ${pr.reps} reps`);
 
 let sessions = [];             // recent sessions (summaries) for this patient
 let coinBalance = null;        // users.coins: all-time coins saved on the patient's account
@@ -103,6 +121,32 @@ function weekStart(now = new Date()) {
 /** Sessions recorded against a prescription. */
 function sessionsFor(pr) {
   return sessions.filter((s) => s.prescriptionId && String(s.prescriptionId) === String(pr._id));
+}
+
+const groupOf = (pr) => EXERCISES[pr.exerciseKey]?.group || "Other";
+let activePlanGroup = "All";
+let activeDashGroup = "All";
+
+function renderGroupPills(container, items, activeGroup, onSelect) {
+  if (!container) return "All";
+  if (items.length <= 6) {
+    container.hidden = true;
+    container.innerHTML = "";
+    return "All";
+  }
+  const groups = ["All", ...new Set(items.map(groupOf))];
+  const current = groups.includes(activeGroup) ? activeGroup : "All";
+  container.hidden = false;
+  container.innerHTML = "";
+  for (const g of groups) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `group-pill${g === current ? " active" : ""}`;
+    btn.textContent = g === "All" ? `All (${items.length})` : g;
+    btn.addEventListener("click", () => onSelect(g));
+    container.appendChild(btn);
+  }
+  return current;
 }
 
 /**
@@ -120,9 +164,22 @@ function weekProgress(pr) {
     (s.completedEarly ? partialDays : doneDays).add(dateKey(d));
   }
   for (const k of doneDays) partialDays.delete(k);
-  const target = pr.daysPerWeek ?? 3;
   const done = doneDays.size;
   const doneToday = doneDays.has(todayK);
+  if (isUnlimited(pr)) {
+    return {
+      target: 0,
+      done,
+      doneDays,
+      partialDays,
+      doneToday,
+      weekMet: true,
+      outstanding: false,
+      behind: false,
+      unlimited: true,
+    };
+  }
+  const target = pr.daysPerWeek ?? 3;
   const daysLeftInWeek = 7 - ((new Date().getDay() + 6) % 7); // including today
   return {
     target,
@@ -133,10 +190,14 @@ function weekProgress(pr) {
     weekMet: done >= target,
     outstanding: !doneToday && done < target,
     behind: target - done > daysLeftInWeek,
+    unlimited: false,
   };
 }
 
 function statusLabel(wp) {
+  if (wp.unlimited) {
+    return { text: wp.doneToday ? "✓ Practised today" : "Unlimited", cls: wp.doneToday ? "done" : "demo" };
+  }
   if (wp.doneToday) return { text: "✓ Done today", cls: "done" };
   if (wp.weekMet) return { text: "✓ Week target met", cls: "done" };
   const left = wp.target - wp.done;
@@ -146,6 +207,54 @@ function statusLabel(wp) {
 /** Outstanding prescriptions first, then ones already done today / for the week. */
 function sortedPlan() {
   return [...plan].sort((a, b) => Number(!weekProgress(a).outstanding) - Number(!weekProgress(b).outstanding));
+}
+
+function renderPlanCards() {
+  const el = $("plan");
+  if (!el) return;
+  if (!plan.length) {
+    el.classList.remove("plan-strip");
+    renderGroupPills($("plan-group-pills"), [], "All", () => {});
+    el.innerHTML = `<div class="muted small">${user.role === "patient" ? "Nothing prescribed yet. Pick any exercise above." : "Signed in as a physio: pick any exercise above."}</div>`;
+    return;
+  }
+  activePlanGroup = renderGroupPills($("plan-group-pills"), plan, activePlanGroup, (g) => {
+    activePlanGroup = g;
+    renderPlanCards();
+  });
+  const items = sortedPlan().filter((pr) => activePlanGroup === "All" || groupOf(pr) === activePlanGroup);
+  el.classList.toggle("plan-strip", plan.length > 4);
+  el.innerHTML = "";
+  for (const pr of items) {
+    const wp = weekProgress(pr);
+    const st = statusLabel(wp);
+    const card = document.createElement("div");
+    card.className = `plan-card${!wp.unlimited && !wp.outstanding ? " done" : ""}${activePrescription?._id === pr._id ? " active" : ""}`;
+    card.dataset.id = pr._id;
+    if (wp.unlimited) {
+      card.innerHTML = `
+        <b class="plan-card-title" title="${esc(pr.exerciseName)}">${esc(pr.exerciseName)}</b>
+        <div class="plan-card-meta">
+          <span class="task-status ${st.cls}">${st.text}</span>
+          <span class="muted small">${esc(groupOf(pr))}</span>
+        </div>`;
+    } else {
+      const ov = pr.angleOverrides?.targetAngle ? ` · target ${pr.angleOverrides.targetAngle}°` : "";
+      const rest = pr.sets > 1 ? ` · rest ${pr.restSeconds ?? DEFAULT_REST_S}s` : "";
+      const phaseTag = pr.timelinePhase ? `<span class="timeline-tag">${esc(pr.timelinePhase)}</span>` : "";
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:6px">
+          <b>${esc(pr.exerciseName)}</b>
+          <span class="timeline-badge">${wp.done}/${wp.target} this week</span>
+        </div>
+        ${phaseTag ? `<div style="margin:2px 0">${phaseTag}</div>` : ""}
+        <span class="muted">${fmtVolume(pr)}${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${rest} · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo${ov}</span>
+        <span class="task-status ${st.cls}">${st.text}</span>
+        ${pr.notes ? `<span class="note">“${esc(pr.notes)}”</span>` : ""}`;
+    }
+    card.addEventListener("click", () => applyPrescription(pr));
+    el.appendChild(card);
+  }
 }
 
 async function loadPlan() {
@@ -169,32 +278,10 @@ async function loadPlan() {
   renderDashboard();
   renderPerformance();
   renderWeeklyRx();
+  renderPlanCards();
   if (!plan.length) {
-    el.innerHTML = `<div class="muted small">${user.role === "patient" ? "Nothing prescribed yet. Use Free play above." : "Signed in as a physio: use Free play to try exercises."}</div>`;
     renderPatientTimeline([], sessions);
     return;
-  }
-  el.innerHTML = "";
-  for (const pr of sortedPlan()) {
-    const wp = weekProgress(pr);
-    const st = statusLabel(wp);
-    const card = document.createElement("div");
-    card.className = `plan-card${wp.outstanding ? "" : " done"}${activePrescription?._id === pr._id ? " active" : ""}`;
-    card.dataset.id = pr._id;
-    const ov = pr.angleOverrides?.targetAngle ? ` · target ${pr.angleOverrides.targetAngle}°` : "";
-    const rest = pr.sets > 1 ? ` · rest ${pr.restSeconds ?? DEFAULT_REST_S}s` : "";
-    const phaseTag = pr.timelinePhase ? `<span class="timeline-tag">${esc(pr.timelinePhase)}</span>` : "";
-    card.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:start;gap:6px">
-        <b>${esc(pr.exerciseName)}</b>
-        <span class="timeline-badge">${wp.done}/${wp.target} this week</span>
-      </div>
-      ${phaseTag ? `<div style="margin:2px 0">${phaseTag}</div>` : ""}
-      <span class="muted">${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${rest} · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo${ov}</span>
-      <span class="task-status ${st.cls}">${st.text}</span>
-      ${pr.notes ? `<span class="note">“${esc(pr.notes)}”</span>` : ""}`;
-    card.addEventListener("click", () => applyPrescription(pr));
-    el.appendChild(card);
   }
 
   // Pre-select the first outstanding prescription if none is active yet (never mid-exercise)
@@ -216,11 +303,12 @@ async function loadPlan() {
     game.setConcentric(exercise.concentric);
     game.setHoldTargetMs((firstPr.holdSeconds || 2) * 1000);
     game.setTempo(firstPr.tempo);
+    muscleDemo.setExercise(exerciseKey, exercise, firstPr.tempo, $("side")?.value === "L" ? "L" : "R");
     recorder.start(exerciseKey, firstPr);
     $("set-progress").hidden = false;
     $("sp-exercise").textContent = firstPr.exerciseName;
-    $("sp-sets").textContent = firstPr.sets;
-    $("sp-reps").textContent = firstPr.reps;
+    $("sp-sets").textContent = isUnlimited(firstPr) ? "1" : firstPr.sets;
+    $("sp-reps").textContent = isUnlimited(firstPr) ? "∞" : firstPr.reps;
     $("finish").hidden = false;
     for (const c of el.children) c.classList.toggle("active", c.dataset?.id === firstPr._id);
     setState = "ready";
@@ -255,7 +343,9 @@ function syncLock() {
   if (running) {
     btn.textContent = "■ Stop exercise";
   } else if (activePrescription && setState === "done") {
-    const allSets = recorder.setsCompleted >= (activePrescription.sets ?? 1);
+    const allSets = isUnlimited(activePrescription)
+      ? recorder.reps.length > 0
+      : recorder.setsCompleted >= (activePrescription.sets ?? 1);
     btn.textContent = allSets
       ? `✓ Complete · Do ${activePrescription.exerciseName} again`
       : `↻ Restart ${activePrescription.exerciseName}`;
@@ -277,7 +367,7 @@ function sessionPerf(s) {
   const tempo = s.performance?.tempo ?? pr?.tempo ?? DEFAULT_TEMPO;
   const sum = s.summary ?? {};
   const tempoAccuracy = s.performance?.tempoAccuracy ?? (sum.repCount ? repTempoScore(sum.avgConcentricMs, sum.avgEccentricMs, tempo) : null);
-  const target = pr ? pr.sets * pr.reps : null;
+  const target = pr && !isUnlimited(pr) && pr.reps ? pr.sets * pr.reps : null;
   const completion =
     s.performance?.completion ??
     (target ? Math.min(1, (sum.repCount ?? 0) / target) : s.setsPrescribed ? Math.min(1, (s.setsCompleted ?? 0) / s.setsPrescribed) : null);
@@ -424,6 +514,45 @@ function renderCoachTips({ recent, tempoAcc, completion, tunnel, coinRate }) {
 }
 
 // ---- Dashboard: today's tasks + headline numbers ----
+function renderDashTasks() {
+  const ul = $("dash-tasks");
+  if (!ul) return;
+  ul.innerHTML = "";
+  if (!plan.length) {
+    renderGroupPills($("dash-group-pills"), [], "All", () => {});
+    ul.classList.remove("compact");
+    ul.innerHTML = `<li class="muted small">${user.role === "patient" ? "Nothing prescribed yet. You can still try exercises on the Exercise page." : "Signed in as a physio."}</li>`;
+    return;
+  }
+  activeDashGroup = renderGroupPills($("dash-group-pills"), plan, activeDashGroup, (g) => {
+    activeDashGroup = g;
+    renderDashTasks();
+  });
+  ul.classList.toggle("compact", plan.length > 4);
+  const items = sortedPlan().filter((pr) => activeDashGroup === "All" || groupOf(pr) === activeDashGroup);
+  for (const pr of items) {
+    const wp = weekProgress(pr);
+    const st = statusLabel(wp);
+    const li = document.createElement("li");
+    li.className = `task-row${!wp.unlimited && !wp.outstanding ? " done" : ""}`;
+    const tempoName = (TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name;
+    const sub = wp.unlimited
+      ? `${esc(groupOf(pr))} · Unlimited reps · ${tempoName} tempo`
+      : `${fmtVolume(pr)} · ${tempoName} tempo · ${wp.done}/${wp.target} days this week`;
+    const isAction = wp.unlimited || wp.outstanding;
+    li.innerHTML = `
+      <div class="task-check">${wp.unlimited ? (wp.doneToday ? "✓" : "•") : wp.outstanding ? "○" : "✓"}</div>
+      <div class="task-body">
+        <b>${esc(pr.exerciseName)}</b>
+        <div class="muted small">${sub}</div>
+        ${wp.unlimited && !wp.doneToday ? "" : `<span class="task-status ${st.cls}">${st.text}</span>`}
+      </div>
+      <button class="${isAction ? "btn-start" : ""}">${isAction ? "Start" : "Do again"}</button>`;
+    li.querySelector("button").addEventListener("click", () => goExercise(pr));
+    ul.appendChild(li);
+  }
+}
+
 function renderDashboard() {
   const now = new Date();
   const hour = now.getHours();
@@ -432,40 +561,28 @@ function renderDashboard() {
   $("dash-date").textContent = now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 
   const wps = plan.map((pr) => weekProgress(pr));
+  const allUnlimited = plan.length > 0 && plan.every(isUnlimited);
   const dueToday = wps.filter((wp) => wp.outstanding).length;
   const doneToday = wps.filter((wp) => wp.doneToday).length;
-  const weekDone = wps.reduce((n, wp) => n + Math.min(wp.done, wp.target), 0);
-  const weekTarget = wps.reduce((n, wp) => n + wp.target, 0);
+  const finiteWps = wps.filter((wp) => !wp.unlimited);
+  const weekDone = finiteWps.reduce((n, wp) => n + Math.min(wp.done, wp.target), 0);
+  const weekTarget = finiteWps.reduce((n, wp) => n + wp.target, 0);
   const totalReps = sessions.reduce((n, s) => n + (s.summary?.repCount ?? 0), 0);
 
-  $("dash-today").textContent = plan.length ? (dueToday ? `${dueToday} to do` : "All done ✓") : "—";
-  $("dash-today-sub").textContent = plan.length ? `${doneToday} completed today` : "nothing prescribed";
-  $("dash-week").textContent = weekTarget ? `${Math.round((weekDone / weekTarget) * 100)}%` : "—";
-  $("dash-week-sub").textContent = weekTarget ? `${weekDone} of ${weekTarget} exercise days` : "";
+  if (allUnlimited) {
+    $("dash-today").textContent = "Demo mode";
+    $("dash-today-sub").textContent = doneToday ? `${doneToday} practised today` : "pick any exercise below";
+    $("dash-week").textContent = `${plan.length} exercises`;
+    $("dash-week-sub").textContent = "unlimited reps enabled";
+  } else {
+    $("dash-today").textContent = plan.length ? (dueToday ? `${dueToday} to do` : "All done ✓") : "—";
+    $("dash-today-sub").textContent = plan.length ? `${doneToday} completed today` : "nothing prescribed";
+    $("dash-week").textContent = weekTarget ? `${Math.round((weekDone / weekTarget) * 100)}%` : "—";
+    $("dash-week-sub").textContent = weekTarget ? `${weekDone} of ${weekTarget} exercise days` : "";
+  }
   $("dash-reps").textContent = totalReps;
 
-  const ul = $("dash-tasks");
-  ul.innerHTML = "";
-  if (!plan.length) {
-    ul.innerHTML = `<li class="muted small">${user.role === "patient" ? "Nothing prescribed yet. You can still try exercises on the Exercise page." : "Signed in as a physio."}</li>`;
-    return;
-  }
-  for (const pr of sortedPlan()) {
-    const wp = weekProgress(pr);
-    const st = statusLabel(wp);
-    const li = document.createElement("li");
-    li.className = `task-row${wp.outstanding ? "" : " done"}`;
-    li.innerHTML = `
-      <div class="task-check">${wp.outstanding ? "○" : "✓"}</div>
-      <div class="task-body">
-        <b>${esc(pr.exerciseName)}</b>
-        <div class="muted small">${pr.sets} sets × ${pr.reps} reps · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo · ${wp.done}/${wp.target} days this week</div>
-        <span class="task-status ${st.cls}">${st.text}</span>
-      </div>
-      <button class="${wp.outstanding ? "btn-start" : ""}">${wp.outstanding ? "Start" : "Do again"}</button>`;
-    li.querySelector("button").addEventListener("click", () => goExercise(pr));
-    ul.appendChild(li);
-  }
+  renderDashTasks();
 }
 
 // ---- Progress: per-prescription weekly completion (e.g. 2 of 3 days) ----
@@ -480,9 +597,21 @@ function renderWeeklyRx() {
   const todayK = dateKey(new Date());
   const dayNames = ["M", "T", "W", "T", "F", "S", "S"];
   el.innerHTML = "";
-  for (const pr of plan) {
+  const allUnlimited = plan.every(isUnlimited);
+  const rows = allUnlimited ? plan.filter((pr) => weekProgress(pr).done > 0) : plan;
+  if (allUnlimited && !rows.length) {
+    el.innerHTML = `<div class="muted small">Demo mode: all ${plan.length} exercises have unlimited reps. Completed exercises appear here this week.</div>`;
+    return;
+  }
+  if (allUnlimited) {
+    const note = document.createElement("div");
+    note.className = "muted small";
+    note.textContent = `Demo mode: showing ${rows.length} of ${plan.length} exercises practised this week (unlimited reps).`;
+    el.appendChild(note);
+  }
+  for (const pr of rows) {
     const wp = weekProgress(pr);
-    const pct = Math.min(100, Math.round((wp.done / Math.max(1, wp.target)) * 100));
+    const pct = wp.unlimited ? Math.min(100, wp.done * 20) : Math.min(100, Math.round((wp.done / Math.max(1, wp.target)) * 100));
     const dots = dayNames
       .map((n, i) => {
         const k = dateKey(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i));
@@ -490,12 +619,16 @@ function renderWeeklyRx() {
         return `<span class="rx-dot ${cls}" title="${k}">${n}</span>`;
       })
       .join("");
+    const rightText = wp.unlimited
+      ? `${wp.done} day${wp.done === 1 ? "" : "s"} this week · unlimited`
+      : `${wp.done} of ${wp.target} days${wp.weekMet ? " ✓" : wp.behind ? " · behind" : ""}`;
+    const rightCls = wp.unlimited ? "muted small" : wp.weekMet ? "rx-met" : wp.behind ? "rx-behind" : "muted small";
     const row = document.createElement("div");
     row.className = "rx-row";
     row.innerHTML = `
       <div class="rx-head">
         <b>${esc(pr.exerciseName)}</b>
-        <span class="${wp.weekMet ? "rx-met" : wp.behind ? "rx-behind" : "muted small"}">${wp.done} of ${wp.target} days${wp.weekMet ? " ✓" : wp.behind ? " · behind" : ""}</span>
+        <span class="${rightCls}">${rightText}</span>
       </div>
       <div class="timeline-bar-wrap"><div class="timeline-bar-fill" style="width:${pct}%"></div></div>
       <div class="rx-dots">${dots}</div>`;
@@ -590,10 +723,13 @@ function renderPatientTimeline(planList, sessionsList) {
     }
   }
 
+  const allUnlimited = planList.length > 0 && planList.every(isUnlimited);
   const targetFreq = planList.length ? Math.max(...planList.map((p) => p.daysPerWeek || 3)) : 3;
   const weekSummaryEl = $("week-summary");
   if (weekSummaryEl) {
-    weekSummaryEl.textContent = `${daysCompletedThisWeek} of ${targetFreq} target days this week (${Math.min(100, Math.round((daysCompletedThisWeek / targetFreq) * 100))}%)`;
+    weekSummaryEl.textContent = allUnlimited
+      ? `${daysCompletedThisWeek} active ${daysCompletedThisWeek === 1 ? "day" : "days"} this week · Demo mode (unlimited)`
+      : `${daysCompletedThisWeek} of ${targetFreq} target days this week (${Math.min(100, Math.round((daysCompletedThisWeek / targetFreq) * 100))}%)`;
   }
 
   // 3. Programme Timeline of Prescribed Exercises
@@ -604,9 +740,10 @@ function renderPatientTimeline(planList, sessionsList) {
     } else {
       timelineGrid.innerHTML = "";
       for (const pr of planList) {
+        const unlimited = isUnlimited(pr);
         const weeks = pr.durationWeeks ?? 4;
         const freq = pr.daysPerWeek ?? 3;
-        const phase = pr.timelinePhase || "Active Phase";
+        const phase = pr.timelinePhase || (unlimited ? "Open Demo" : "Active Phase");
         const start = pr.startDate ? new Date(pr.startDate) : new Date(pr.createdAt || Date.now());
         const end = pr.endDate ? new Date(pr.endDate) : new Date(start.getTime() + weeks * 7 * 86400e3);
         const msSinceStart = Date.now() - start.getTime();
@@ -616,12 +753,35 @@ function renderPatientTimeline(planList, sessionsList) {
         const exSessions = sessionsList.filter((s) => s.exerciseKey === pr.exerciseKey);
         const daysDoneForEx = new Set(exSessions.map((s) => dateKey(new Date(s.startedAt)))).size;
         const totalTargetDays = weeks * freq;
-        const progressPct = Math.min(100, Math.round((daysDoneForEx / Math.max(1, totalTargetDays)) * 100));
+        const progressPct = unlimited
+          ? Math.min(100, daysDoneForEx * 20)
+          : Math.min(100, Math.round((daysDoneForEx / Math.max(1, totalTargetDays)) * 100));
 
         const item = document.createElement("div");
         item.className = "timeline-item";
         item.title = "Click to start this exercise";
-        item.innerHTML = `
+        item.innerHTML = unlimited
+          ? `
+          <div class="timeline-item-head">
+            <div>
+              <b style="font-size:14px">${esc(pr.exerciseName)}</b>
+              <div style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap">
+                <span class="timeline-tag">${esc(groupOf(pr))}</span>
+              </div>
+            </div>
+            <span class="muted small" style="text-align:right">
+              ${daysDoneForEx} day${daysDoneForEx === 1 ? "" : "s"} logged<br>
+              <b style="color:var(--accent)">Anytime</b>
+            </span>
+          </div>
+          <div class="timeline-bar-wrap">
+            <div class="timeline-bar-fill" style="width: ${progressPct}%"></div>
+          </div>
+          <div class="muted small" style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;font-size:11px">
+            <span>Unlimited reps</span>
+            <span>Demo</span>
+          </div>`
+          : `
           <div class="timeline-item-head">
             <div>
               <b style="font-size:14px">${esc(pr.exerciseName)}</b>
@@ -639,10 +799,9 @@ function renderPatientTimeline(planList, sessionsList) {
             <div class="timeline-bar-fill" style="width: ${progressPct}%"></div>
           </div>
           <div class="muted small" style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;font-size:11px">
-            <span>${pr.sets} sets × ${pr.reps} reps · ${freq} days/wk</span>
+            <span>${fmtVolume(pr)} · ${freq} days/wk</span>
             <span>Ends ${end.toLocaleDateString([], { day: "numeric", month: "short" })}</span>
-          </div>
-        `;
+          </div>`;
         item.addEventListener("click", () => goExercise(pr));
         timelineGrid.appendChild(item);
       }
@@ -754,11 +913,13 @@ async function applyPrescription(pr) {
   game.setConcentric(exercise.concentric);
   game.setHoldTargetMs((pr.holdSeconds || 2) * 1000);
   game.setTempo(pr.tempo);
+  muscleDemo.setExercise(exerciseKey, exercise, pr.tempo, $("side")?.value === "L" ? "L" : "R");
+  if (!running) muscleDemo.setCollapsed(false);
   recorder.start(exerciseKey, pr);
   $("set-progress").hidden = false;
   $("sp-exercise").textContent = pr.exerciseName;
-  $("sp-sets").textContent = pr.sets;
-  $("sp-reps").textContent = pr.reps;
+  $("sp-sets").textContent = isUnlimited(pr) ? "1" : pr.sets;
+  $("sp-reps").textContent = isUnlimited(pr) ? "∞" : pr.reps;
   $("finish").hidden = false;
 
   // Loading an exercise never starts it: the patient presses Start when they're ready.
@@ -772,10 +933,13 @@ async function applyPrescription(pr) {
 function updateSetProgress() {
   if (!activePrescription) return;
   const pr = activePrescription;
-  const done = setState === "done" && recorder.setsCompleted >= pr.sets; // finished every set
+  const unlimited = isUnlimited(pr);
+  const done = setState === "done" && (unlimited ? recorder.reps.length > 0 : recorder.setsCompleted >= pr.sets); // finished every set
   const stopped = setState === "done" && !done; // stopped early
-  const inSet = done ? pr.reps : Math.min(pr.reps, Math.max(0, recorder.repsInCurrentSet(pr.reps)));
-  $("sp-set").textContent = done ? pr.sets : Math.min(pr.sets, recorder.setsCompleted + 1);
+  const inSet = unlimited
+    ? recorder.reps.length
+    : done ? pr.reps : Math.min(pr.reps, Math.max(0, recorder.repsInCurrentSet(pr.reps)));
+  $("sp-set").textContent = unlimited ? "1" : done ? pr.sets : Math.min(pr.sets, recorder.setsCompleted + 1);
   $("sp-rep").textContent = inSet;
   $("sp-state").textContent =
     setState === "resting" ? "Resting" : done ? "Complete ✓" : stopped ? "Stopped" : setState === "ready" ? "Ready" : "Go";
@@ -797,7 +961,12 @@ function startSet() {
   smoother.reset();
   $("reps").textContent = "0";
   updateSetProgress();
-  flashCue(`Set ${recorder.setsCompleted + 1} of ${pr.sets}: ${pr.reps} reps. Go!`, "good");
+  flashCue(
+    isUnlimited(pr)
+      ? "Unlimited reps · Go! Press Finish & save whenever you're done."
+      : `Set ${recorder.setsCompleted + 1} of ${pr.sets}: ${pr.reps} reps. Go!`,
+    "good"
+  );
   cueTimer = performance.now() + 2500;
   syncLock();
 }
@@ -805,6 +974,11 @@ function startSet() {
 /** Called after each counted rep while a prescription is being worked: handles set boundaries. */
 function onPrescribedRep(tempo = "") {
   const pr = activePrescription;
+  if (isUnlimited(pr)) {
+    if (tempo) flashCue(`Rep ${recorder.reps.length} · ${tempo}`, "good");
+    updateSetProgress();
+    return;
+  }
   const inSet = recorder.repsInCurrentSet(pr.reps);
   if (inSet >= pr.reps) {
     recorder.completeSet();
@@ -931,7 +1105,7 @@ async function finishSession(silent = false) {
  * Afterwards the exercise and game can be changed again.
  */
 async function stopExercise() {
-  if (activePrescription && setState !== "done") {
+  if (activePrescription && setState !== "done" && !isUnlimited(activePrescription)) {
     const setsPrescribed = activePrescription.sets ?? null;
     const setsCompleted = recorder.setsCompleted ?? 0;
     if (recorder.reps.length && setsPrescribed != null && setsCompleted < setsPrescribed) {
@@ -1027,6 +1201,7 @@ function syncModeConstraints(mode) {
     game.setConcentric(exercise.concentric);
     game.setTempo(DEFAULT_TEMPO);
     game.setResting(false);
+    muscleDemo.setExercise(exerciseKey, exercise, DEFAULT_TEMPO, $("side")?.value === "L" ? "L" : "R");
     if (recorder.active) recorder.start(exerciseKey, null);
   }
   const labelEl = $("gauge-label");
@@ -1285,6 +1460,8 @@ exerciseSelect.addEventListener("change", async () => {
   game.setConcentric(exercise.concentric);
   game.setTempo(DEFAULT_TEMPO);
   game.setResting(false);
+  muscleDemo.setExercise(exerciseKey, exercise, DEFAULT_TEMPO, $("side")?.value === "L" ? "L" : "R");
+  if (!running) muscleDemo.setCollapsed(false);
   recorder.start(exerciseKey, null); // free play is still recorded
   game.pause("waiting"); // starts when the patient presses Start
   setStatus(`Free play: ${exercise.name}. Press Start when you're ready.`);
@@ -1302,6 +1479,7 @@ $("side")?.addEventListener("change", () => {
   $("phase").classList.remove("active-phase");
   $("gauge").classList.remove("at-target");
   syncExerciseBanner();
+  muscleDemo.setSide($("side")?.value === "L" ? "L" : "R");
 });
 $("mirror").addEventListener("change", (e) => document.body.classList.toggle("mirror", e.target.checked));
 document.body.classList.toggle("mirror", $("mirror").checked);
@@ -1616,6 +1794,62 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// ---- Camera selection & hot-swap ----
+const CAM_STORAGE_KEY = "physio.cameraId";
+const cameraSelect = $("camera-select");
+
+async function populateCameraSelect(activeStream = null) {
+  if (!cameraSelect) return;
+  const devices = await listCameras();
+  const savedId = localStorage.getItem(CAM_STORAGE_KEY) || "";
+  const activeId = activeStream?.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId || "";
+  const currentVal = activeId || savedId || cameraSelect.value || "";
+
+  cameraSelect.innerHTML = "";
+  const autoOpt = document.createElement("option");
+  autoOpt.value = "";
+  autoOpt.textContent = "Built-in webcam (Auto)";
+  cameraSelect.appendChild(autoOpt);
+
+  devices.forEach((d, idx) => {
+    if (!d.deviceId) return;
+    const opt = document.createElement("option");
+    opt.value = d.deviceId;
+    const raw = d.label || `Camera ${idx + 1}`;
+    opt.textContent = VIRTUAL_CAM_RE.test(raw) ? `${raw} (Virtual)` : raw;
+    cameraSelect.appendChild(opt);
+  });
+
+  if (currentVal && [...cameraSelect.options].some((o) => o.value === currentVal)) {
+    cameraSelect.value = currentVal;
+  } else {
+    cameraSelect.value = "";
+  }
+}
+
+if (cameraSelect) {
+  populateCameraSelect().catch(() => {});
+  navigator.mediaDevices?.addEventListener?.("devicechange", () => {
+    populateCameraSelect(video.srcObject).catch(() => {});
+  });
+  cameraSelect.addEventListener("change", async () => {
+    const id = cameraSelect.value || "";
+    if (id) localStorage.setItem(CAM_STORAGE_KEY, id);
+    else localStorage.removeItem(CAM_STORAGE_KEY);
+    if (video.srcObject) {
+      try {
+        setStatus("Switching camera…");
+        const stream = await startCamera(video, id || null);
+        await populateCameraSelect(stream);
+        setStatus(running ? "Exercise active · camera switched" : "Camera ready.");
+      } catch (err) {
+        setStatus(`Error: ${err.message}`, "error");
+        flashCue(err.message, "warn");
+      }
+    }
+  });
+}
+
 // ---- Start Exercise & Camera ----
 function setStatus(text, kind = "") {
   const el = $("status");
@@ -1635,7 +1869,9 @@ async function startExercise() {
   try {
     if (!loop) {
       setStatus("Starting camera… (allow camera access in browser prompt)");
-      await startCamera(video);
+      const chosenCam = cameraSelect?.value || localStorage.getItem(CAM_STORAGE_KEY) || null;
+      const stream = await startCamera(video, chosenCam);
+      await populateCameraSelect(stream);
       const { landmarker, mp } = await createPoseTracker({ onStatus: setStatus });
       drawer = new mp.DrawingUtils(octx);
       connections = mp.PoseLandmarker.POSE_CONNECTIONS;
@@ -1647,6 +1883,7 @@ async function startExercise() {
     delete btn.dataset.busy;
     btn.disabled = false;
     running = true;
+    muscleDemo.setCollapsed(true);
     game.resetStats(); // coins / tunnel accuracy are tallied per run
 
     // Start exercise and game now that camera has started
@@ -1680,6 +1917,11 @@ $("start").disabled = false;
 syncLock();
 setStatus("Ready. Choose an exercise or click Start exercise.");
 loadMediaPipe(() => {}).catch(() => {});
+
+document.addEventListener("click", (e) => {
+  const more = document.querySelector(".toolbar-more[open]");
+  if (more && !more.contains(e.target)) more.open = false;
+});
 
 showView();
 

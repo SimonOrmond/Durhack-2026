@@ -682,9 +682,10 @@ export class RunnerGame {
 
   #drawDino(ctx, p) {
     const legSwap = Math.sin(p.animTime * 1.4) > 0;
-    const body = "#4fd1a0";
-    const crest = "#a855f7"; // DurHack purple spikes
-    const belly = "#7de6be";
+    const isGlider = this.mode === "glider";
+    const body = isGlider ? "#f472b6" : "#38bdf8";   // Pink in Cave Glider, Blue in Dino Runner
+    const crest = isGlider ? "#fdf2f8" : "#f472b6";  // Light tuft on pink dino, pink tuft on blue dino
+    const belly = isGlider ? "#fbcfe8" : "#bae6fd";
 
     if (this.mode === "runner" && p.ducking) {
       const base = p.y;
@@ -712,7 +713,6 @@ export class RunnerGame {
       return;
     }
 
-    const isGlider = this.mode === "glider";
     if (isGlider) {
       const tilt = Math.max(-0.28, Math.min(0.28, p.vy * 0.00075));
       ctx.save?.();

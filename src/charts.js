@@ -6,7 +6,13 @@
 
 const CSS = getComputedStyle(document.documentElement);
 const col = (name, fallback) => CSS.getPropertyValue(name).trim() || fallback;
-const INK = { text: col("--text", "#e8ecf3"), muted: col("--muted", "#8f9bb0"), grid: col("--line", "#2a3140") };
+// Getters: re-read the CSS variables on every render so charts follow the light/dark toggle.
+const INK = {
+  get text() { return col("--text", "#e8ecf3"); },
+  get muted() { return col("--muted", "#8f9bb0"); },
+  get grid() { return col("--line", "#2a3140"); },
+  get surface() { return col("--panel", "#171c25"); },
+};
 // Validated against the panel surface (#171c25): blue / orange / aqua, dark-mode steps.
 export const SERIES = { blue: "#3987e5", orange: "#d95926", aqua: "#199e70" };
 
@@ -80,7 +86,7 @@ export function lineChart(el, { points, fmt = (v) => v, color = SERIES.blue, lab
 
   const d = points.map((p, i) => `${i ? "L" : "M"}${X(+p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ");
   svgEl("path", { d, fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round" }, f.svg);
-  for (const p of points) svgEl("circle", { cx: X(+p.x), cy: Y(p.y), r: 4, fill: color, stroke: "#171c25", "stroke-width": 2 }, f.svg);
+  for (const p of points) svgEl("circle", { cx: X(+p.x), cy: Y(p.y), r: 4, fill: color, stroke: INK.surface, "stroke-width": 2 }, f.svg);
 
   // last value direct label
   const last = points[n - 1];

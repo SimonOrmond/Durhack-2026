@@ -54,12 +54,14 @@ export class SessionRecorder {
   /** extra.game: stats from the game (coins, tunnel accuracy, hits) for the patient dashboard. */
   async save(extra = {}) {
     if (!this.active || !this.reps.length) return null;
-    const setsPrescribed = this.prescription?.sets ?? null;
+    const unlimited = Boolean(this.prescription && (this.prescription.unlimited || this.prescription.reps == null));
+    const setsPrescribed = unlimited ? null : (this.prescription?.sets ?? null);
+    const setsCompleted = unlimited ? Math.max(1, this.setsCompleted) : this.setsCompleted;
     const doc = await Api.saveSession({
       exerciseKey: this.exerciseKey,
       prescriptionId: this.prescription?._id ?? null,
       startedAt: this.startedAt.toISOString(),
-      setsCompleted: this.setsCompleted,
+      setsCompleted,
       setsPrescribed,
       reps: this.reps,
       game: extra.game ?? null,

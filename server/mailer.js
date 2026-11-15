@@ -37,7 +37,7 @@ function summaryRows(pr) {
   const target = pr.angleOverrides?.targetAngle ?? ex.targetAngle;
   const rows = [
     ["Exercise", pr.exerciseName],
-    ["Sets × reps", `${pr.sets} sets × ${pr.reps} reps`],
+    ["Sets × reps", pr.unlimited || pr.reps == null ? "Unlimited reps" : `${pr.sets} sets × ${pr.reps} reps`],
     ["Tempo", `${t.name}: ${t.up}s up · ${t.hold}s hold · ${t.down}s down`],
   ];
   if (pr.holdSeconds) rows.push(["Hold at the top", `${pr.holdSeconds}s`]);
@@ -47,6 +47,19 @@ function summaryRows(pr) {
   if (rest != null && target != null) rows.push(["Range of motion", `${rest}° → ${target}° (${Math.abs(target - rest)}° of movement)`]);
   if (pr.timelinePhase) rows.push(["Stage", pr.timelinePhase]);
   return rows;
+}
+
+const DEFAULT_APP_URL = "https://durhack-2026.vercel.app";
+
+function resolveAppUrl() {
+  if (process.env.APP_URL) return process.env.APP_URL.trim();
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.trim()}`;
+  }
+  return DEFAULT_APP_URL;
 }
 
 /**
@@ -59,7 +72,7 @@ export async function sendPrescriptionEmail({ kind = "new", prescription: pr, pa
   if (!to) return { sent: false, skipped: "Patient has no email address (or set EMAIL_TO in .env)" };
 
   const ex = EXERCISES[pr.exerciseKey] ?? {};
-  const appUrl = process.env.APP_URL || `http://localhost:${process.env.PORT || 5173}`;
+  const appUrl = resolveAppUrl();
   // Link to the login page (signs out anyone already signed in), then on to the patient dashboard.
   const loginUrl = `${appUrl.replace(/\/+$/, "")}/login.html?fresh=1&next=${encodeURIComponent("/index.html#dashboard")}`;
   const first = String(patient?.name ?? "there").split(" ")[0];

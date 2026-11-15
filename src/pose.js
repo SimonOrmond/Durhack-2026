@@ -51,26 +51,90 @@ function options(delegate) {
   };
 }
 
-export async function startCamera(video) {
+export const VIRTUAL_CAM_RE = /phone\s*link|link\s*to\s*windows|windows\s*virtual|virtual\s*camera|obs\s*virtual|droidcam|iriun|epoccam|camo/i;
+const BUILTIN_CAM_RE = /integrated|built-?in|internal|hd\s*camera|usb\s*camera|webcam|facetime|ir\s*camera|front/i;
+
+export async function listCameras() {
+  if (!navigator.mediaDevices?.enumerateDevices) return [];
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((d) => d.kind === "videoinput");
+  } catch {
+    return [];
+  }
+}
+
+export function pickPreferredCameraId(devices, savedDeviceId = null) {
+  if (!devices?.length) return null;
+  if (savedDeviceId) {
+    const match = devices.find((d) => d.deviceId === savedDeviceId);
+    if (match) return match.deviceId;
+  }
+  const realCams = devices.filter((d) => d.label && !VIRTUAL_CAM_RE.test(d.label));
+  if (!realCams.length) return null;
+  const builtIn = realCams.find((d) => BUILTIN_CAM_RE.test(d.label));
+  return (builtIn ?? realCams[0]).deviceId || null;
+}
+
+export async function startCamera(video, preferredDeviceId = null) {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error(
       `Camera API unavailable. Serve the page over http://localhost or https (current: ${location.protocol}//${location.host || "file"}).`
     );
   }
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+  const devicesBefore = await listCameras();
+  const chosenId = pickPreferredCameraId(devicesBefore, preferredDeviceId);
+
+  const openStream = (deviceId) =>
+    navigator.mediaDevices.getUserMedia({
+      video: deviceId
+        ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } }
+        : { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
       audio: false,
     });
+
+  let stream;
+  try {
+    stream = await openStream(chosenId);
   } catch (err) {
-    const hints = {
-      NotAllowedError: "Camera permission denied. Click the camera icon in Chrome's address bar and allow it, then reload.",
-      NotFoundError: "No camera found.",
-      NotReadableError: "Camera is in use by another app (Teams/Zoom/OBS?). Close it and retry.",
-      OverconstrainedError: "Camera doesn't support the requested resolution.",
-    };
-    throw new Error(hints[err.name] ?? `${err.name}: ${err.message}`);
+    if (chosenId) {
+      // Saved or preferred device failed (unplugged/busy): fall back to browser default
+      try {
+        stream = await openStream(null);
+      } catch (fallbackErr) {
+        err = fallbackErr;
+      }
+    }
+    if (!stream) {
+      const hints = {
+        NotAllowedError: "Camera permission denied. Click the camera icon in Chrome's address bar and allow it, then reload.",
+        NotFoundError: "No camera found.",
+        NotReadableError: "Camera is in use by another app (Teams/Zoom/OBS/Phone Link?). Close it and retry.",
+        OverconstrainedError: "Camera doesn't support the requested resolution.",
+      };
+      throw new Error(hints[err.name] ?? `${err.name}: ${err.message}`);
+    }
+  }
+
+  // If no explicit camera was requested and the browser opened Phone Link / a virtual cam,
+  // re-enumerate now that permission is granted and switch to the real built-in webcam.
+  const activeLabel = stream.getVideoTracks()[0]?.label ?? "";
+  if (!preferredDeviceId && VIRTUAL_CAM_RE.test(activeLabel)) {
+    const devicesAfter = await listCameras();
+    const realId = pickPreferredCameraId(devicesAfter, null);
+    if (realId && realId !== stream.getVideoTracks()[0]?.getSettings?.().deviceId) {
+      try {
+        const realStream = await openStream(realId);
+        stream.getTracks().forEach((t) => t.stop());
+        stream = realStream;
+      } catch {
+        // Keep current stream if the physical camera could not be opened
+      }
+    }
+  }
+
+  if (video.srcObject && video.srcObject !== stream) {
+    video.srcObject.getTracks?.().forEach((t) => t.stop());
   }
   video.srcObject = stream;
   await new Promise((res) => (video.onloadedmetadata = res));
