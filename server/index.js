@@ -26,6 +26,7 @@ import { seedDatabase } from "./seed.js";
 import { EXERCISES } from "../src/exercises.js";
 import { normaliseRep, summarise, normaliseGame, scorePerformance } from "./metrics.js";
 import { sendPrescriptionEmail, emailConfigured } from "./mailer.js";
+import { videoRouter } from "./videos.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -374,6 +375,9 @@ app.get(
     res.json(rows);
   })
 );
+
+// ---- form-review videos (consented, chunked, auto-expiring; see videos.js) ----
+app.use("/api", videoRouter({ requireRole, exercises: EXERCISES }));
 
 // ---- static + errors -------------------------------------------------------
 app.use(express.static(ROOT, { index: "login.html", extensions: ["html"] }));

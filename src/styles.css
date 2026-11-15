@@ -425,14 +425,15 @@ section.view {
 .video-wrap { background: #05070b; }
 .game-wrap { background: var(--game-bg); }
 
-video, #overlay {
+/* Live camera feed + pose overlay only (not preview / playback videos elsewhere). */
+.video-wrap > video, #overlay {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.mirror video, .mirror #overlay { transform: scaleX(-1); }
+.mirror .video-wrap > video, .mirror #overlay { transform: scaleX(-1); }
 
 .status {
   position: absolute;
@@ -1479,3 +1480,67 @@ html[data-bold="1"] :is(.muted, .small) { font-weight: 600; }
 .a11y-toggles button { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
 .a11y-toggles button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .a11y-floating { position: fixed; top: 12px; right: 12px; z-index: 100; }
+
+/* ===================================================================
+   Form-review videos: consent dialog, REC badge, preview, lists
+   =================================================================== */
+.fv-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  box-shadow: var(--card-shadow);
+}
+.fv-dialog::backdrop { background: rgb(0 0 0 / 0.55); backdrop-filter: blur(3px); }
+.fv-dialog h3 { margin: 0 0 4px; font-size: 18px; }
+.fv-modes { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 10px 12px; margin: 14px 0; display: grid; gap: 10px; }
+.fv-modes legend { font-size: 12px; color: var(--muted); padding: 0 4px; }
+.fv-modes label, .fv-consent { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.fv-modes input, .fv-consent input { margin-top: 3px; flex: none; }
+.fv-facts { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 5px; font-size: 13.5px; }
+.fv-consent { padding: 12px; border-radius: var(--radius-md); background: rgb(var(--sunken-rgb) / 0.6); border: 1px solid var(--line); font-size: 13px; line-height: 1.45; }
+.fv-actions {
+  display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; flex-wrap: wrap;
+  /* Keep Send / Discard visible even on short screens */
+  position: sticky; bottom: -22px; background: var(--panel); padding: 10px 0 2px;
+}
+.fv-preview, .video-player {
+  /* Recorded clips are shown as recorded: never mirrored, positioned or cropped like the live feed. */
+  position: static; inset: auto; transform: none; display: block;
+  width: 100%; height: auto; object-fit: contain; background: #000;
+}
+.fv-preview { max-height: min(50vh, 420px); border-radius: var(--radius-md); margin-top: 10px; }
+.fv-progress { height: 8px; background: rgb(var(--hi-rgb) / 0.08); border-radius: 999px; overflow: hidden; margin-top: 8px; }
+.fv-progress > div { height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
+
+.rec-badge {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 12px; border-radius: 999px;
+  background: rgba(190, 18, 60, 0.92); color: #fff; font-size: 12.5px; font-weight: 700; letter-spacing: .02em;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.rec-dot { width: 9px; height: 9px; border-radius: 50%; background: #fff; animation: rec-blink 1s steps(2, start) infinite; }
+@keyframes rec-blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
+.record-btn.recording { border-color: var(--bad); color: var(--bad); }
+
+.video-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.video-row { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); }
+.video-row-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+.video-status { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.video-status.submitted { color: var(--warn-text); border-color: rgba(245, 158, 11, 0.4); }
+.video-status.reviewed { color: var(--accent); border-color: rgba(16, 185, 129, 0.4); }
+.video-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.video-player { max-width: 560px; max-height: 420px; border-radius: var(--radius-sm); }
+.video-feedback { font-size: 13.5px; padding: 8px 10px; border-left: 3px solid var(--accent); background: rgb(var(--sunken-rgb) / 0.5); border-radius: 4px; }
+.video-feedback-form { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.video-feedback-form textarea {
+  flex: 1 1 260px; min-height: 44px; resize: vertical;
+  background: var(--bg); color: var(--text); border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  padding: 8px 10px; font: 13.5px/1.4 var(--font-sans);
+}

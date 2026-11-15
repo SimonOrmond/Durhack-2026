@@ -191,6 +191,7 @@
           <span class="sp-state" id="sp-state">Go</span> <b class="sp-rest" id="sp-rest"></b></span>
         <span class="sp-actions">
           <button class="small-btn" id="skip-rest" hidden>Skip rest</button>
+          <button class="small-btn record-btn" id="record-set" hidden title="Record a set and send it to your physio to check your form (asks for consent first)">🎥 Record set for physio</button>
           <button class="small-btn" id="finish">Finish &amp; save</button>
         </span>
       </div>
@@ -285,6 +286,15 @@
           <div class="timeline-cards-grid" id="timeline-cards-grid">
             <div class="muted small">Loading timeline…</div>
           </div>
+        </div>
+
+        <!-- Form-review videos sent to the physio, with their feedback -->
+        <div class="completed-history-card" id="form-reviews-card">
+          <div class="timeline-card-head">
+            <b>🎥 Form reviews</b>
+            <span class="muted small">Sets you've recorded and sent to your physio · auto-deleted after 30 days</span>
+          </div>
+          <ul class="video-list" id="my-videos"><li class="muted small">Loading…</li></ul>
         </div>
 
         <!-- History of Completed Days -->
