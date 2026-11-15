@@ -233,11 +233,11 @@ function renderPlanCards() {
     card.dataset.id = pr._id;
     if (wp.unlimited) {
       card.innerHTML = `
-        <div class="plan-card-top">
-          <b>${esc(pr.exerciseName)}</b>
+        <b class="plan-card-title" title="${esc(pr.exerciseName)}">${esc(pr.exerciseName)}</b>
+        <div class="plan-card-meta">
+          <span class="task-status ${st.cls}">${st.text}</span>
           <span class="muted small">${esc(groupOf(pr))}</span>
-        </div>
-        <span class="task-status ${st.cls}">${st.text}</span>`;
+        </div>`;
     } else {
       const ov = pr.angleOverrides?.targetAngle ? ` · target ${pr.angleOverrides.targetAngle}°` : "";
       const rest = pr.sets > 1 ? ` · rest ${pr.restSeconds ?? DEFAULT_REST_S}s` : "";
