@@ -34,7 +34,7 @@ export async function api(path, { method = "GET", body } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `${method} ${path} failed (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `${method} ${path} failed (${res.status})`), { status: res.status });
   return data;
 }
 
@@ -73,6 +73,7 @@ export const Api = {
   createPrescription: (body) => api("/prescriptions", { method: "POST", body }),
   updatePrescription: (id, body) => api(`/prescriptions/${id}`, { method: "PATCH", body }),
   stopPrescription: (id) => api(`/prescriptions/${id}`, { method: "DELETE" }),
+  planChanges: (patientId, body) => api(`/patients/${patientId}/plan-changes`, { method: "POST", body }),
   saveSession: (body) => api("/sessions", { method: "POST", body }),
   sessions: (patientId, limit = 20) => api(`/patients/${patientId}/sessions?limit=${limit}`),
   session: (id) => api(`/sessions/${id}`),

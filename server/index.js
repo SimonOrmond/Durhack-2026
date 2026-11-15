@@ -5,7 +5,8 @@
 //   GET  /api/physios/:id/patients           patients belonging to a physio
 //   GET  /api/patients/:id                   one patient
 //   GET  /api/patients/:id/prescriptions     active prescriptions (?all=1 for inactive too)
-//   POST /api/prescriptions                  create (physio only); emails the patient a summary (see mailer.js)
+//   POST /api/prescriptions                  create one (physio only; no email)
+//   POST /api/patients/:id/plan-changes      apply add/edit/remove batch, then ONE summary email (physio)
 //   PATCH /api/prescriptions/:id             edit sets/reps/tempo/etc. (physio only; exercise is fixed)
 //   DELETE /api/prescriptions/:id            deactivate (physio only)
 //   POST /api/sessions                       save a completed session (patient); adds its coins to users.coins
@@ -25,7 +26,7 @@ import { connect, getDb, isMemory } from "./db.js";
 import { seedDatabase } from "./seed.js";
 import { EXERCISES } from "../src/exercises.js";
 import { normaliseRep, summarise, normaliseGame, scorePerformance } from "./metrics.js";
-import { sendPrescriptionEmail, emailConfigured } from "./mailer.js";
+import { sendPlanChangesEmail, emailConfigured } from "./mailer.js";
 import { videoRouter } from "./videos.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -189,14 +190,84 @@ app.post(
       createdAt: now,
       updatedAt: now,
     };
+    // No email here: the physio page batches changes and submits them through
+    // POST /api/patients/:id/plan-changes, which sends a single summary email.
     const { insertedId } = await getDb().collection("prescriptions").insertOne(doc);
-    // Email the patient a summary. The prescription is already saved, so a mail failure only
-    // shows up as a status message on the physio page.
-    const patient = await getDb().collection("users").findOne({ _id: patientId });
-    const email = await sendPrescriptionEmail({ kind: "new", prescription: { _id: insertedId, ...doc }, patient, physio: req.user });
-    if (email.sent) console.log(`[mail] prescription summary sent to ${email.to}`);
+    res.status(201).json({ _id: insertedId, ...doc });
+  })
+);
+
+// Apply a batch of plan changes (add / edit / remove) for one patient, then send ONE email
+// summarising everything. Body: { add: [{exerciseKey, ...fields}], edit: [{id, ...fields}], remove: [id] }
+// Everything is validated before anything is written, so a bad item can't half-apply the batch.
+const EDITABLE_FIELDS = ["sets", "reps", "unlimited", "holdSeconds", "restSeconds", "durationWeeks", "daysPerWeek", "timelinePhase", "tempo", "angleOverrides", "notes"];
+app.post(
+  "/api/patients/:id/plan-changes",
+  requireRole("physio"),
+  wrap(async (req, res) => {
+    const db = getDb();
+    const col = db.collection("prescriptions");
+    const patientId = oid(req.params.id);
+    const patient = patientId && (await db.collection("users").findOne({ _id: patientId, role: "patient" }));
+    if (!patient) return res.status(404).json({ error: "Patient not found" });
+    const b = req.body ?? {};
+    const adds = Array.isArray(b.add) ? b.add.slice(0, 30) : [];
+    const edits = Array.isArray(b.edit) ? b.edit.slice(0, 50) : [];
+    const removes = Array.isArray(b.remove) ? b.remove.slice(0, 50) : [];
+    if (!adds.length && !edits.length && !removes.length) return res.status(400).json({ error: "No changes to submit" });
+
+    // ---- validate ----
+    for (const a of adds) if (!EXERCISES[a?.exerciseKey]) return res.status(400).json({ error: `Unknown exercise "${a?.exerciseKey}"` });
+    const ids = [...edits.map((e) => e?.id), ...removes].map(oid);
+    if (ids.some((x) => !x)) return res.status(400).json({ error: "Bad prescription id" });
+    const existing = await col.find({ _id: { $in: ids }, patientId, active: true }).toArray();
+    const byId = new Map(existing.map((p) => [String(p._id), p]));
+    for (const x of ids) if (!byId.has(String(x))) return res.status(409).json({ error: "One of the exercises was changed or stopped elsewhere. Reload and try again." });
+
+    // ---- apply ----
+    const now = new Date();
+    const added = [];
+    for (const a of adds) {
+      const ex = EXERCISES[a.exerciseKey];
+      const fields = prescriptionFields(a, ex);
+      const doc = {
+        patientId,
+        physioId: req.user._id,
+        exerciseKey: a.exerciseKey,
+        exerciseName: ex.name,
+        ...fields,
+        startDate: now,
+        endDate: new Date(now.getTime() + fields.durationWeeks * 7 * 86400e3),
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const { insertedId } = await col.insertOne(doc);
+      added.push({ _id: insertedId, ...doc });
+    }
+    const removeSet = new Set(removes.map(String));
+    const edited = [];
+    for (const e of edits) {
+      if (removeSet.has(String(e.id))) continue; // removing wins over editing
+      const before = byId.get(String(e.id));
+      const ex = EXERCISES[before.exerciseKey];
+      const merged = { ...before };
+      for (const k of EDITABLE_FIELDS) if (k in e) merged[k] = e[k];
+      const fields = prescriptionFields(merged, ex);
+      const startDate = before.startDate ? new Date(before.startDate) : new Date(before.createdAt);
+      const update = { ...fields, endDate: new Date(startDate.getTime() + fields.durationWeeks * 7 * 86400e3), updatedAt: now };
+      await col.updateOne({ _id: before._id }, { $set: update });
+      edited.push({ before, after: { ...before, ...update } });
+    }
+    const removed = removes.map((id) => byId.get(String(id)));
+    if (removed.length) await col.updateMany({ _id: { $in: removed.map((p) => p._id) } }, { $set: { active: false, updatedAt: now } });
+
+    // ---- one email ----
+    const plan = await col.find({ patientId, active: true }).sort({ createdAt: 1 }).toArray();
+    const email = await sendPlanChangesEmail({ patient, physio: req.user, added, edited, removed, plan });
+    if (email.sent) console.log(`[mail] plan update sent to ${email.to} (+${added.length} ~${edited.length} -${removed.length})`);
     else console.log(`[mail] not sent: ${email.skipped ?? email.error}`);
-    res.status(201).json({ _id: insertedId, ...doc, email });
+    res.json({ added: added.length, edited: edited.length, removed: removed.length, email });
   })
 );
 
