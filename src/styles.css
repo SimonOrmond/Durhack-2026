@@ -1408,13 +1408,13 @@ select:disabled { opacity: 0.5; cursor: not-allowed; }
   border-radius: 50%;
 }
 .muscle-pill.primary {
-  color: #fecdd3;
+  color: black;
   border-color: rgba(244, 63, 94, 0.45);
   background: rgba(244, 63, 94, 0.14);
 }
 .muscle-pill.primary .pill-dot { background: #fb7185; }
 .muscle-pill.secondary {
-  color: #fde68a;
+  color: black;
   border-color: rgba(245, 158, 11, 0.4);
   background: rgba(245, 158, 11, 0.11);
 }
