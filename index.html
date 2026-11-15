@@ -48,7 +48,7 @@
         <div class="perf-head">
           <div>
             <h3 style="margin:0">Your performance <span class="muted small" id="perf-period">this week</span></h3>
-            <div class="muted small">Scored on matching your prescribed tempo, finishing your reps and keeping the dino in the tunnel</div>
+            <div class="muted small">Scored on tempo accuracy, completion, and tunnel control</div>
           </div>
         </div>
         <div class="perf-grid">
@@ -68,7 +68,10 @@
       </div>
 
       <div class="plan-section">
-        <h3 style="margin-top:0">Your tasks <span class="muted small">from your physio</span></h3>
+        <div class="plan-section-head">
+          <h3 style="margin:0">Your exercises</h3>
+          <div class="group-pills" id="dash-group-pills" hidden></div>
+        </div>
         <ul class="task-list" id="dash-tasks"><li class="muted small">Loading…</li></ul>
       </div>
     </section>
@@ -76,7 +79,7 @@
     <!-- ===== Exercise ===== -->
     <section class="view" id="view-exercise" data-view="exercise" hidden>
       <div class="exercise-toolbar controls">
-        <label>Free play
+        <label>Exercise
           <select id="exercise"></select>
         </label>
         <label>Game
@@ -92,61 +95,30 @@
             <option value="L">Left</option>
           </select>
         </label>
-        <label>Camera
-          <select id="camera-select">
-            <option value="">Built-in webcam (Auto)</option>
-          </select>
-        </label>
-        <label><input type="checkbox" id="mirror" checked /> Mirror</label>
-        <label><input type="checkbox" id="debug" /> Debug</label>
-        <button id="reset">Reset</button>
+        <details class="toolbar-more">
+          <summary>Settings</summary>
+          <div class="toolbar-more-menu">
+            <label>Camera
+              <select id="camera-select">
+                <option value="">Built-in webcam (Auto)</option>
+              </select>
+            </label>
+            <div class="toolbar-more-checks">
+              <label><input type="checkbox" id="mirror" checked /> Mirror</label>
+              <label><input type="checkbox" id="debug" /> Debug</label>
+              <button type="button" id="reset" class="small-btn">Reset</button>
+            </div>
+          </div>
+        </details>
       </div>
 
-      <div class="plan-section">
-        <h3 style="margin-top:0">Outstanding exercises <span class="muted small" id="plan-hint">click one to load it</span></h3>
+      <div class="plan-section" id="plan-section">
+        <div class="plan-section-head">
+          <h3 style="margin:0">Quick select <span class="muted small" id="plan-hint">click one to load it</span></h3>
+          <div class="group-pills" id="plan-group-pills" hidden></div>
+        </div>
         <div id="plan" class="plan"><div class="muted small">Loading…</div></div>
       </div>
-
-      <!-- Hevy-style movement demonstrator & target muscle focus -->
-      <section class="muscle-demo-section" id="muscle-demo-section" aria-label="Movement guide and target muscles">
-        <div class="muscle-demo-head">
-          <div class="muscle-demo-title-group">
-            <span class="muscle-demo-eyebrow">Movement Demo</span>
-            <h3 id="demo-exercise-title" style="margin:0">Shoulder abduction</h3>
-            <span class="muted small" id="demo-view-label">Front View · Coronal Plane</span>
-          </div>
-          <div class="muscle-demo-actions">
-            <span class="badge" id="demo-tempo-badge">Slow tempo · 3s-1s-3s</span>
-            <button type="button" class="small-btn" id="demo-play-toggle" aria-pressed="false">⏸ Pause</button>
-            <button type="button" class="small-btn" id="toggle-muscle-demo" aria-expanded="true">Hide guide</button>
-          </div>
-        </div>
-        <div class="muscle-demo-body" id="muscle-demo-body">
-          <div class="muscle-canvas-wrap">
-            <canvas id="muscle-demo-canvas" width="360" height="250"></canvas>
-            <div class="muscle-legend">
-              <span><i class="legend-dot primary"></i> Primary muscle</span>
-              <span><i class="legend-dot secondary"></i> Secondary stabiliser</span>
-              <span><i class="legend-dash"></i> Peak target</span>
-            </div>
-          </div>
-          <div class="muscle-demo-info">
-            <div class="muscle-group-block">
-              <div class="demo-label">Target muscles</div>
-              <div class="muscle-pills" id="demo-primary-muscles"></div>
-            </div>
-            <div class="muscle-group-block">
-              <div class="demo-label">Secondary stabilisers</div>
-              <div class="muscle-pills" id="demo-secondary-muscles"></div>
-            </div>
-            <div class="demo-rom-bar" id="demo-rom-meta">Target range: 22° → 100°</div>
-            <div class="muscle-group-block">
-              <div class="demo-label">How to perform it</div>
-              <ol class="demo-cues-list" id="demo-form-cues"></ol>
-            </div>
-          </div>
-        </div>
-      </section>
 
     <!-- Camera + Game side-by-side layout -->
     <section class="live-dock">
@@ -213,6 +185,47 @@
         </span>
       </div>
     </section>
+
+      <!-- Hevy-style movement demonstrator & target muscle focus (kept below live camera + game) -->
+      <section class="muscle-demo-section" id="muscle-demo-section" aria-label="Movement guide and target muscles">
+        <div class="muscle-demo-head">
+          <div class="muscle-demo-title-group">
+            <span class="muscle-demo-eyebrow">Movement Demo</span>
+            <h3 id="demo-exercise-title" style="margin:0">Shoulder abduction</h3>
+            <span class="muted small" id="demo-view-label">Front View · Coronal Plane</span>
+          </div>
+          <div class="muscle-demo-actions">
+            <span class="badge" id="demo-tempo-badge">Slow tempo · 3s-1s-3s</span>
+            <button type="button" class="small-btn" id="demo-play-toggle" aria-pressed="false">⏸ Pause</button>
+            <button type="button" class="small-btn" id="toggle-muscle-demo" aria-expanded="true">Hide guide</button>
+          </div>
+        </div>
+        <div class="muscle-demo-body" id="muscle-demo-body">
+          <div class="muscle-canvas-wrap">
+            <canvas id="muscle-demo-canvas" width="360" height="250"></canvas>
+            <div class="muscle-legend">
+              <span><i class="legend-dot primary"></i> Primary muscle</span>
+              <span><i class="legend-dot secondary"></i> Secondary stabiliser</span>
+              <span><i class="legend-dash"></i> Peak target</span>
+            </div>
+          </div>
+          <div class="muscle-demo-info">
+            <div class="muscle-group-block">
+              <div class="demo-label">Target muscles</div>
+              <div class="muscle-pills" id="demo-primary-muscles"></div>
+            </div>
+            <div class="muscle-group-block">
+              <div class="demo-label">Secondary stabilisers</div>
+              <div class="muscle-pills" id="demo-secondary-muscles"></div>
+            </div>
+            <div class="demo-rom-bar" id="demo-rom-meta">Target range: 22° → 100°</div>
+            <div class="muscle-group-block">
+              <div class="demo-label">How to perform it</div>
+              <ol class="demo-cues-list" id="demo-form-cues"></ol>
+            </div>
+          </div>
+        </div>
+      </section>
 
 
       <pre id="debug-out" class="debug hidden"></pre>

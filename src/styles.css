@@ -255,6 +255,99 @@ section.view {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 24px -10px rgba(0, 0, 0, 0.35);
 }
 
+.toolbar-more {
+  position: relative;
+  margin-left: auto;
+}
+.toolbar-more summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 35px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-elevated);
+  color: var(--muted);
+  font: 500 13px/1 var(--font-sans);
+  transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+}
+.toolbar-more summary::-webkit-details-marker { display: none; }
+.toolbar-more summary:hover, .toolbar-more[open] summary {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.24);
+  background: var(--panel-hover);
+}
+.toolbar-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 40;
+  min-width: 270px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.65);
+}
+.toolbar-more-menu > label {
+  display: grid;
+  gap: 6px;
+  align-items: stretch;
+}
+.toolbar-more-menu select { width: 100%; }
+.toolbar-more-checks {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.toolbar-more-checks .small-btn {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.plan-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.group-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.group-pill {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(15, 23, 42, 0.55);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.group-pill:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+.group-pill.active {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: var(--accent-bright);
+}
+
 .live-dock {
   background: transparent;
   padding: 4px 0 12px;
@@ -655,6 +748,32 @@ table.sessions th { color: var(--muted); font-weight: 600; font-size: 11.5px; te
 
 /* ---- Patient plan & set progress ---- */
 .plan { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.plan.plan-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+.plan.plan-strip .plan-card {
+  flex: 0 0 auto;
+  min-width: 195px;
+  max-width: 245px;
+  padding: 9px 12px;
+  gap: 3px;
+}
+.plan-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.plan-card-top b {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .plan-card {
   display: grid;
   gap: 4px;
@@ -910,6 +1029,15 @@ tr.session-incomplete { background: rgba(245, 158, 11, 0.04) !important; }
 @media (max-width: 640px) { .dash-tiles { grid-template-columns: 1fr; } }
 
 .task-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+@media (min-width: 780px) {
+  .task-list.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.task-list.compact .task-row {
+  padding: 11px 14px;
+  gap: 12px;
+}
 .task-row {
   display: flex;
   align-items: center;
@@ -940,6 +1068,7 @@ tr.session-incomplete { background: rgba(245, 158, 11, 0.04) !important; }
 .task-status { font-size: 12px; font-weight: 600; }
 .task-status.todo { color: #fbbf24; }
 .task-status.done { color: var(--accent-bright); }
+.task-status.demo { color: #7dd3fc; font-weight: 500; }
 
 .weekly-rx { display: grid; gap: 14px; }
 .rx-row { display: grid; gap: 6px; }
