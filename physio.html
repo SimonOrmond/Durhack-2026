@@ -41,7 +41,8 @@
         </div>
       </div>
 
-      <h3>Prescribe an exercise</h3>
+      <h3>Add an exercise to the plan</h3>
+      <p class="muted small" style="margin-top:-4px">Add as many exercises as you like. Nothing is sent to the patient until you press <b>Submit changes</b> below the plan.</p>
       <form id="prescribe-form" class="prescribe-form">
         <label class="wide">Exercise
           <select id="p-exercise" required></select>
@@ -94,13 +95,24 @@
         </details>
         <label class="wide">Notes for the patient <input id="p-notes" maxlength="500" placeholder="e.g. Stop if sharp pain. Go slowly on the way down." /></label>
         <div class="wide form-actions">
-          <button type="submit" id="p-submit">Send prescription</button>
+          <button type="submit" id="p-submit">＋ Add to plan</button>
           <span id="p-status" class="muted"></span>
         </div>
       </form>
 
       <h3>Current plan &amp; timeline</h3>
       <ul id="prescription-list" class="prescription-list"></ul>
+      <div class="plan-draft-bar" id="plan-draft-bar" hidden>
+        <div>
+          <b id="draft-count">0 unsent changes</b>
+          <div class="muted small" id="draft-summary"></div>
+        </div>
+        <div class="plan-draft-actions">
+          <button type="button" class="small-btn" id="draft-discard">Discard changes</button>
+          <button type="button" class="btn-start" id="draft-submit">Submit changes &amp; email patient</button>
+        </div>
+      </div>
+      <div class="muted small" id="draft-status" aria-live="polite"></div>
 
       <h3>🎥 Form review videos <span class="muted" id="video-storage" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h3>
       <p class="muted small" style="margin-top:-4px">Sets the patient chose to record and send you, with their consent. Videos delete automatically after 30 days.</p>
