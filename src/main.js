@@ -106,6 +106,8 @@ let restEndsAt = 0;       // performance.now() when the rest ends
 let restRemainingMs = 0;  // remaining rest while paused
 let restTicker = null;
 const DEFAULT_REST_S = 60;
+const isUnlimited = (pr) => Boolean(pr && (pr.unlimited || pr.reps == null));
+const fmtVolume = (pr) => (isUnlimited(pr) ? "Unlimited reps" : `${pr.sets} sets × ${pr.reps} reps`);
 
 let sessions = [];             // recent sessions (summaries) for this patient
 let coinBalance = null;        // users.coins: all-time coins saved on the patient's account
@@ -206,7 +208,7 @@ async function loadPlan() {
         <span class="timeline-badge">${wp.done}/${wp.target} this week</span>
       </div>
       ${phaseTag ? `<div style="margin:2px 0">${phaseTag}</div>` : ""}
-      <span class="muted">${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${rest} · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo${ov}</span>
+      <span class="muted">${fmtVolume(pr)}${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${rest} · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo${ov}</span>
       <span class="task-status ${st.cls}">${st.text}</span>
       ${pr.notes ? `<span class="note">“${esc(pr.notes)}”</span>` : ""}`;
     card.addEventListener("click", () => applyPrescription(pr));
@@ -236,8 +238,8 @@ async function loadPlan() {
     recorder.start(exerciseKey, firstPr);
     $("set-progress").hidden = false;
     $("sp-exercise").textContent = firstPr.exerciseName;
-    $("sp-sets").textContent = firstPr.sets;
-    $("sp-reps").textContent = firstPr.reps;
+    $("sp-sets").textContent = isUnlimited(firstPr) ? "1" : firstPr.sets;
+    $("sp-reps").textContent = isUnlimited(firstPr) ? "∞" : firstPr.reps;
     $("finish").hidden = false;
     for (const c of el.children) c.classList.toggle("active", c.dataset?.id === firstPr._id);
     setState = "ready";
@@ -272,7 +274,9 @@ function syncLock() {
   if (running) {
     btn.textContent = "■ Stop exercise";
   } else if (activePrescription && setState === "done") {
-    const allSets = recorder.setsCompleted >= (activePrescription.sets ?? 1);
+    const allSets = isUnlimited(activePrescription)
+      ? recorder.reps.length > 0
+      : recorder.setsCompleted >= (activePrescription.sets ?? 1);
     btn.textContent = allSets
       ? `✓ Complete · Do ${activePrescription.exerciseName} again`
       : `↻ Restart ${activePrescription.exerciseName}`;
@@ -294,7 +298,7 @@ function sessionPerf(s) {
   const tempo = s.performance?.tempo ?? pr?.tempo ?? DEFAULT_TEMPO;
   const sum = s.summary ?? {};
   const tempoAccuracy = s.performance?.tempoAccuracy ?? (sum.repCount ? repTempoScore(sum.avgConcentricMs, sum.avgEccentricMs, tempo) : null);
-  const target = pr ? pr.sets * pr.reps : null;
+  const target = pr && !isUnlimited(pr) && pr.reps ? pr.sets * pr.reps : null;
   const completion =
     s.performance?.completion ??
     (target ? Math.min(1, (sum.repCount ?? 0) / target) : s.setsPrescribed ? Math.min(1, (s.setsCompleted ?? 0) / s.setsPrescribed) : null);
@@ -476,7 +480,7 @@ function renderDashboard() {
       <div class="task-check">${wp.outstanding ? "○" : "✓"}</div>
       <div class="task-body">
         <b>${esc(pr.exerciseName)}</b>
-        <div class="muted small">${pr.sets} sets × ${pr.reps} reps · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo · ${wp.done}/${wp.target} days this week</div>
+        <div class="muted small">${fmtVolume(pr)} · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo · ${wp.done}/${wp.target} days this week</div>
         <span class="task-status ${st.cls}">${st.text}</span>
       </div>
       <button class="${wp.outstanding ? "btn-start" : ""}">${wp.outstanding ? "Start" : "Do again"}</button>`;
@@ -656,7 +660,7 @@ function renderPatientTimeline(planList, sessionsList) {
             <div class="timeline-bar-fill" style="width: ${progressPct}%"></div>
           </div>
           <div class="muted small" style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;font-size:11px">
-            <span>${pr.sets} sets × ${pr.reps} reps · ${freq} days/wk</span>
+            <span>${fmtVolume(pr)} · ${freq} days/wk</span>
             <span>Ends ${end.toLocaleDateString([], { day: "numeric", month: "short" })}</span>
           </div>
         `;
@@ -776,8 +780,8 @@ async function applyPrescription(pr) {
   recorder.start(exerciseKey, pr);
   $("set-progress").hidden = false;
   $("sp-exercise").textContent = pr.exerciseName;
-  $("sp-sets").textContent = pr.sets;
-  $("sp-reps").textContent = pr.reps;
+  $("sp-sets").textContent = isUnlimited(pr) ? "1" : pr.sets;
+  $("sp-reps").textContent = isUnlimited(pr) ? "∞" : pr.reps;
   $("finish").hidden = false;
 
   // Loading an exercise never starts it: the patient presses Start when they're ready.
@@ -791,10 +795,13 @@ async function applyPrescription(pr) {
 function updateSetProgress() {
   if (!activePrescription) return;
   const pr = activePrescription;
-  const done = setState === "done" && recorder.setsCompleted >= pr.sets; // finished every set
+  const unlimited = isUnlimited(pr);
+  const done = setState === "done" && (unlimited ? recorder.reps.length > 0 : recorder.setsCompleted >= pr.sets); // finished every set
   const stopped = setState === "done" && !done; // stopped early
-  const inSet = done ? pr.reps : Math.min(pr.reps, Math.max(0, recorder.repsInCurrentSet(pr.reps)));
-  $("sp-set").textContent = done ? pr.sets : Math.min(pr.sets, recorder.setsCompleted + 1);
+  const inSet = unlimited
+    ? recorder.reps.length
+    : done ? pr.reps : Math.min(pr.reps, Math.max(0, recorder.repsInCurrentSet(pr.reps)));
+  $("sp-set").textContent = unlimited ? "1" : done ? pr.sets : Math.min(pr.sets, recorder.setsCompleted + 1);
   $("sp-rep").textContent = inSet;
   $("sp-state").textContent =
     setState === "resting" ? "Resting" : done ? "Complete ✓" : stopped ? "Stopped" : setState === "ready" ? "Ready" : "Go";
@@ -816,7 +823,12 @@ function startSet() {
   smoother.reset();
   $("reps").textContent = "0";
   updateSetProgress();
-  flashCue(`Set ${recorder.setsCompleted + 1} of ${pr.sets}: ${pr.reps} reps. Go!`, "good");
+  flashCue(
+    isUnlimited(pr)
+      ? "Unlimited reps · Go! Press Finish & save whenever you're done."
+      : `Set ${recorder.setsCompleted + 1} of ${pr.sets}: ${pr.reps} reps. Go!`,
+    "good"
+  );
   cueTimer = performance.now() + 2500;
   syncLock();
 }
@@ -824,6 +836,11 @@ function startSet() {
 /** Called after each counted rep while a prescription is being worked: handles set boundaries. */
 function onPrescribedRep(tempo = "") {
   const pr = activePrescription;
+  if (isUnlimited(pr)) {
+    if (tempo) flashCue(`Rep ${recorder.reps.length} · ${tempo}`, "good");
+    updateSetProgress();
+    return;
+  }
   const inSet = recorder.repsInCurrentSet(pr.reps);
   if (inSet >= pr.reps) {
     recorder.completeSet();
@@ -950,7 +967,7 @@ async function finishSession(silent = false) {
  * Afterwards the exercise and game can be changed again.
  */
 async function stopExercise() {
-  if (activePrescription && setState !== "done") {
+  if (activePrescription && setState !== "done" && !isUnlimited(activePrescription)) {
     const setsPrescribed = activePrescription.sets ?? null;
     const setsCompleted = recorder.setsCompleted ?? 0;
     if (recorder.reps.length && setsPrescribed != null && setsCompleted < setsPrescribed) {

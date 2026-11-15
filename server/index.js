@@ -147,9 +147,11 @@ function prescriptionFields(b, ex) {
     }
     if (!Object.keys(angleOverrides).length) angleOverrides = null;
   }
+  const unlimited = Boolean(b.unlimited || b.reps === null || b.reps === "");
   return {
     sets: Math.max(1, Math.min(20, Number(b.sets) || 1)),
-    reps: Math.max(1, Math.min(100, Number(b.reps) || 10)),
+    reps: unlimited ? null : Math.max(1, Math.min(100, Number(b.reps) || 10)),
+    unlimited,
     holdSeconds: Math.max(0, Math.min(60, Number(b.holdSeconds) || 0)),
     restSeconds: b.restSeconds === undefined || b.restSeconds === "" ? 60 : Math.max(0, Math.min(600, Number(b.restSeconds) || 0)),
     durationWeeks,
@@ -211,7 +213,7 @@ app.patch(
     if (!ex) return res.status(400).json({ error: `Unknown exerciseKey "${existing.exerciseKey}"` });
 
     const b = req.body ?? {};
-    const editable = ["sets", "reps", "holdSeconds", "restSeconds", "durationWeeks", "daysPerWeek", "timelinePhase", "tempo", "angleOverrides", "notes"];
+    const editable = ["sets", "reps", "unlimited", "holdSeconds", "restSeconds", "durationWeeks", "daysPerWeek", "timelinePhase", "tempo", "angleOverrides", "notes"];
     const merged = { ...existing };
     for (const k of editable) if (k in b) merged[k] = b[k];
     const fields = prescriptionFields(merged, ex);

@@ -18,6 +18,7 @@ const PATIENTS = [
   { username: "dana", name: "Dana Petrova", physio: "dr.lee", condition: "Hip osteoarthritis" },
   { username: "eve", name: "Eve Mensah", physio: "dr.lee", condition: "Lower back pain" },
   { username: "femi", name: "Femi Adeyemi", physio: "dr.lee", condition: "Rotator cuff repair" },
+  { username: "demo", name: "Demo Patient", physio: "dr.khan", condition: "All exercises · Unlimited reps (demo mode)" },
 ].map((p) => ({ ...p, password: "patient", role: "patient" }));
 
 // patient username -> exercises to prescribe
@@ -44,6 +45,17 @@ const PLANS = {
     { exerciseKey: "rcTableSlideStage1", sets: 3, reps: 8, holdSeconds: 2, durationWeeks: 2, daysPerWeek: 5, timelinePhase: "Stage 1 (Weeks 0–2)", notes: "Stage 1 (Weeks 0-2): Keep movement minimal, smooth and pain-free (35° max)." },
     { exerciseKey: "rcExternalRotationStage2", sets: 2, reps: 8, holdSeconds: 2, durationWeeks: 4, daysPerWeek: 3, timelinePhase: "Stage 2 (Weeks 3–6)", notes: "Tuck a rolled towel under the armpit; keep rotation gentle." },
   ],
+  demo: Object.keys(EXERCISES).map((exerciseKey) => ({
+    exerciseKey,
+    sets: 1,
+    reps: null,
+    unlimited: true,
+    holdSeconds: 2,
+    durationWeeks: 12,
+    daysPerWeek: 7,
+    timelinePhase: "Open Demo (Unlimited)",
+    notes: "Unlimited reps — perform as many reps as you like and press Finish & save whenever done.",
+  })),
 };
 
 // Representative form cue per exercise for the fake history (matches the real cue wording).
@@ -107,7 +119,8 @@ export async function seedDatabase(db, { reset = false } = {}) {
         exerciseKey: plan.exerciseKey,
         exerciseName: ex.name,
         sets: plan.sets,
-        reps: plan.reps,
+        reps: plan.reps ?? null,
+        unlimited: Boolean(plan.unlimited || plan.reps == null),
         holdSeconds: plan.holdSeconds ?? 0,
         restSeconds: plan.restSeconds ?? 60,
         durationWeeks,
@@ -123,6 +136,9 @@ export async function seedDatabase(db, { reset = false } = {}) {
       };
       const { insertedId } = await prescriptions.insertOne(pres);
       nPres++;
+
+      // Skip fake past sessions for unlimited / zero-rep demo prescriptions so demo starts clean
+      if (!plan.reps || plan.unlimited) continue;
 
       // Fake history: one session a day for the last 5 days. ROM improves, tempo gets more
       // controlled (eccentric phase lengthens), form cues become rarer.

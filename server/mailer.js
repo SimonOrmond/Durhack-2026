@@ -37,7 +37,7 @@ function summaryRows(pr) {
   const target = pr.angleOverrides?.targetAngle ?? ex.targetAngle;
   const rows = [
     ["Exercise", pr.exerciseName],
-    ["Sets × reps", `${pr.sets} sets × ${pr.reps} reps`],
+    ["Sets × reps", pr.unlimited || pr.reps == null ? "Unlimited reps" : `${pr.sets} sets × ${pr.reps} reps`],
     ["Tempo", `${t.name}: ${t.up}s up · ${t.hold}s hold · ${t.down}s down`],
   ];
   if (pr.holdSeconds) rows.push(["Hold at the top", `${pr.holdSeconds}s`]);

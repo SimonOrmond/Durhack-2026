@@ -175,7 +175,7 @@ async function loadPrescriptions() {
           <span class="timeline-badge">Week ${currentWeek} of ${weeks} · ${freq}d/wk</span>
         </div>
         <div class="muted" style="margin-top:2px">
-          ${pr.sets} sets × ${pr.reps} reps${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${pr.sets > 1 ? ` · rest ${pr.restSeconds ?? 60}s` : ""} · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo${ov}
+          ${pr.unlimited || pr.reps == null ? "Unlimited reps" : `${pr.sets} sets × ${pr.reps} reps`}${pr.holdSeconds ? ` · hold ${pr.holdSeconds}s` : ""}${pr.sets > 1 ? ` · rest ${pr.restSeconds ?? 60}s` : ""} · ${(TEMPOS[pr.tempo] ?? TEMPOS[DEFAULT_TEMPO]).name} tempo${ov}
         </div>
         <div class="muted small" style="margin-top:3px;font-size:11px">
           📅 Timeline: ${dateRangeStr} (${weeks} weeks total)
@@ -212,7 +212,7 @@ function openEditForm(li, pr) {
   form.innerHTML = `
     <div class="wide"><b>Editing ${esc(pr.exerciseName)}</b> <span class="muted small">(exercise can't be changed; stop it and prescribe a new one instead)</span></div>
     <label>Sets <input name="sets" type="number" min="1" max="20" value="${pr.sets}" required /></label>
-    <label>Reps per set <input name="reps" type="number" min="1" max="100" value="${pr.reps}" required /></label>
+    <label>Reps per set <input name="reps" type="number" min="1" max="100" value="${pr.reps ?? ""}" placeholder="Unlimited" /></label>
     <label>Hold (s) <input name="holdSeconds" type="number" min="0" max="60" value="${pr.holdSeconds ?? 0}" /></label>
     <label>Rest between sets (s) <input name="restSeconds" type="number" min="0" max="600" value="${pr.restSeconds ?? 60}" /></label>
     <label>Duration (weeks) <input name="durationWeeks" type="number" min="1" max="52" value="${pr.durationWeeks ?? 4}" required /></label>
@@ -254,7 +254,8 @@ function openEditForm(li, pr) {
       const target = computeTarget();
       await Api.updatePrescription(pr._id, {
         sets: f.sets.value,
-        reps: f.reps.value,
+        reps: f.reps.value === "" ? null : f.reps.value,
+        unlimited: f.reps.value === "",
         holdSeconds: f.holdSeconds.value,
         restSeconds: f.restSeconds.value,
         durationWeeks: f.durationWeeks.value,
