@@ -9,6 +9,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="src/styles.css" />
+  <script>
+    // Apply saved display settings before first paint (see src/a11y.js).
+    try {
+      var t = localStorage.getItem("physio.theme");
+      if (t) document.documentElement.dataset.theme = t;
+      if (localStorage.getItem("physio.bold") === "1") document.documentElement.dataset.bold = "1";
+    } catch (e) {}
+  </script>
 </head>
 <body class="login-page">
   <main class="login-card">
@@ -35,5 +43,6 @@
     </details>
   </main>
   <script type="module" src="src/login.js"></script>
+  <script type="module" src="src/a11y.js"></script>
 </body>
 </html>
