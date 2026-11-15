@@ -120,7 +120,7 @@ export async function sendPrescriptionEmail({ kind = "new", prescription: pr, pa
   </div>`;
 
   try {
-    await getTransporter().sendMail({ from: `"${physioName} via Physio app" <${process.env.GMAIL_USER}>`, to, subject, text, html });
+    await getTransporter().sendMail({ from: `"${physioName} via TheraPlay" <${process.env.GMAIL_USER}>`, to, subject, text, html });
     return { sent: true, to };
   } catch (err) {
     console.error("[mail] failed:", err.message);
