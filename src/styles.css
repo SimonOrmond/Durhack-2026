@@ -423,7 +423,7 @@ section.view {
   box-shadow: 0 20px 44px -16px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgb(var(--hi-rgb) / 0.06);
 }
 .video-wrap { background: #05070b; }
-.game-wrap { background: #121722; }
+.game-wrap { background: var(--game-bg); }
 
 video, #overlay {
   position: absolute;
@@ -506,7 +506,7 @@ video, #overlay {
   display: block;
   width: 100%;
   height: 100%;
-  background: #121722;
+  background: var(--game-bg);
 }
 
 .game-help {
@@ -1436,6 +1436,7 @@ select:disabled { opacity: 0.5; cursor: not-allowed; }
   --on-accent: #042f2e;
   --on-warn: #0b0e14;
   --tab-active-bg: #1e2638;
+  --game-bg: #121722;
   --card-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.72);
   color-scheme: dark;
 }
@@ -1459,6 +1460,7 @@ html[data-theme="light"] {
   --on-accent: #ffffff;
   --on-warn: #ffffff;
   --tab-active-bg: #ffffff;
+  --game-bg: #e4ebf7;
   --card-shadow: 0 18px 44px -18px rgba(15, 23, 42, 0.28);
   color-scheme: light;
 }

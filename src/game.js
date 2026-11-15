@@ -10,6 +10,31 @@ const CAVE_HALF_H = 72;
 import { TEMPOS, DEFAULT_TEMPO, tempoSummary } from "./tempo.js";
 export { TEMPOS, DEFAULT_TEMPO, tempoSummary };
 
+// Scene colours for dark and light mode. The page's theme toggle (src/a11y.js) sets
+// <html data-theme>, and the game picks the matching palette every frame.
+const PALETTES = {
+  dark: {
+    skyTop: "#141928", skyBot: "#1e273e", flash: "#4a2430",
+    ground: "#242b3d", groundLine: "#4c3b6b", groundMark: "#333d57", shadow: "rgba(0, 0, 0, 0.28)",
+    ceiling: "#191f34", floor: "#22293e", ceilingEdge: "#a855f7", floorEdge: "#4fd1a0", hitEdge: "#e85d75",
+    centerLine: "rgba(127, 179, 255, 0.34)", label: "#d8b4fe", subLabel: "rgba(184, 196, 216, 0.75)",
+    hudBg: "rgba(15, 18, 24, 0.76)", hudText: "#e8ecf3", hudMuted: "#9aa8bf", hudLabel: "#b8c4d8", barTrack: "#2a3140",
+    gaugeBg: "rgba(15, 18, 24, 0.55)", gaugeTrack: "#263044", gaugeKnob: "#e8ecf3", gaugeText: "#9aa8bf",
+    zoneIdle: "rgba(184, 196, 216, 0.55)", zoneDivider: "rgba(232, 236, 243, 0.45)",
+  },
+  light: {
+    skyTop: "#dbeafe", skyBot: "#eef2ff", flash: "#fecdd3",
+    ground: "#cbd5e1", groundLine: "#a78bfa", groundMark: "#94a3b8", shadow: "rgba(15, 23, 42, 0.18)",
+    ceiling: "#d4dcec", floor: "#c8d1e4", ceilingEdge: "#7c3aed", floorEdge: "#059669", hitEdge: "#e11d48",
+    centerLine: "rgba(37, 99, 235, 0.45)", label: "#6d28d9", subLabel: "rgba(51, 65, 85, 0.8)",
+    hudBg: "rgba(255, 255, 255, 0.86)", hudText: "#0f172a", hudMuted: "#475569", hudLabel: "#334155", barTrack: "#cbd5e1",
+    gaugeBg: "rgba(255, 255, 255, 0.78)", gaugeTrack: "#cbd5e1", gaugeKnob: "#0f172a", gaugeText: "#475569",
+    zoneIdle: "rgba(71, 85, 105, 0.7)", zoneDivider: "rgba(15, 23, 42, 0.35)",
+  },
+};
+const currentPalette = () =>
+  PALETTES[globalThis.document?.documentElement?.dataset?.theme === "light" ? "light" : "dark"];
+
 const PB_KEYS = {
   glider: "durhack_glider_pb",
   runner: "durhack_dino_pb",
@@ -786,11 +811,12 @@ export class RunnerGame {
     const fillH = botCenterY - curCenterY;
     const targetTickY = botCenterY - trackH * 0.65;
 
-    ctx.fillStyle = "rgba(15, 18, 24, 0.55)";
+    const pal = this.pal ?? currentPalette();
+    ctx.fillStyle = pal.gaugeBg;
     ctx.fillRect(6, topCenterY - 20, 28, trackH + 40);
 
     // Track rail
-    ctx.fillStyle = "#263044";
+    ctx.fillStyle = pal.gaugeTrack;
     ctx.fillRect(trackX, topCenterY, trackW, trackH);
 
     // Filled altitude bar
@@ -802,12 +828,12 @@ export class RunnerGame {
     ctx.fillRect(trackX - 3, targetTickY - 1, trackW + 6, 2);
 
     // Knob indicator
-    ctx.fillStyle = "#e8ecf3";
+    ctx.fillStyle = pal.gaugeKnob;
     ctx.beginPath();
     ctx.arc(trackX + trackW / 2, curCenterY, 5, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = "#9aa8bf";
+    ctx.fillStyle = pal.gaugeText;
     ctx.font = "600 9px system-ui";
     ctx.fillText("100%", 7, topCenterY - 8);
     ctx.fillText("0%", 11, botCenterY + 13);
@@ -830,20 +856,21 @@ export class RunnerGame {
       { ...RUNNER_STATES.ducking, y0: y121, y1: botY },
     ];
 
-    ctx.fillStyle = "rgba(15, 18, 24, 0.58)";
+    const pal = this.pal ?? currentPalette();
+    ctx.fillStyle = pal.gaugeBg;
     ctx.fillRect(6, topY - 10, 48, trackH + 20);
 
     for (const b of bands) {
       const active = runnerState === b.state;
       ctx.fillStyle = `rgba(${b.rgb}, ${active ? 0.88 : 0.26})`;
       ctx.fillRect(trackX, b.y0, trackW, Math.max(2, b.y1 - b.y0));
-      ctx.fillStyle = active ? b.color : "rgba(184, 196, 216, 0.55)";
+      ctx.fillStyle = active ? b.color : pal.zoneIdle;
       ctx.font = active ? "bold 9px system-ui" : "600 8px system-ui";
       ctx.fillText(b.short, trackX + trackW + 4, (b.y0 + b.y1) / 2 + 3);
     }
 
     // Threshold dividers at 90° and 121°
-    ctx.fillStyle = "rgba(232, 236, 243, 0.45)";
+    ctx.fillStyle = pal.zoneDivider;
     ctx.fillRect(trackX - 2, y90 - 0.5, trackW + 4, 1);
     ctx.fillRect(trackX - 2, y121 - 0.5, trackW + 4, 1);
 
@@ -882,8 +909,9 @@ export class RunnerGame {
       pts.push({ x: W, ...this.caveBoundsAtScreenX(W) });
     }
 
+    const pal = this.pal ?? currentPalette();
     // Upper cave rock ceiling
-    ctx.fillStyle = "#191f34";
+    ctx.fillStyle = pal.ceiling;
     ctx.beginPath();
     ctx.moveTo(0, 0);
     for (const pt of pts) ctx.lineTo(pt.x, pt.topY);
@@ -891,7 +919,7 @@ export class RunnerGame {
     ctx.closePath();
     ctx.fill();
 
-    ctx.strokeStyle = this.caveHitCooldown > 0 ? "#e85d75" : "#a855f7";
+    ctx.strokeStyle = this.caveHitCooldown > 0 ? pal.hitEdge : pal.ceilingEdge;
     ctx.lineWidth = 3;
     ctx.beginPath();
     for (let i = 0; i < pts.length; i++) {
@@ -901,7 +929,7 @@ export class RunnerGame {
     ctx.stroke();
 
     // Lower cave hump rock rising from groundY
-    ctx.fillStyle = "#22293e";
+    ctx.fillStyle = pal.floor;
     ctx.beginPath();
     ctx.moveTo(0, groundY);
     for (const pt of pts) ctx.lineTo(pt.x, pt.botY);
@@ -909,7 +937,7 @@ export class RunnerGame {
     ctx.closePath();
     ctx.fill();
 
-    ctx.strokeStyle = this.caveHitCooldown > 0 ? "#e85d75" : "#4fd1a0";
+    ctx.strokeStyle = this.caveHitCooldown > 0 ? pal.hitEdge : pal.floorEdge;
     ctx.lineWidth = 3;
     ctx.beginPath();
     for (let i = 0; i < pts.length; i++) {
@@ -920,7 +948,7 @@ export class RunnerGame {
 
     // Smooth dashed target path down the center of the cave corridor
     ctx.save?.();
-    ctx.strokeStyle = "rgba(127, 179, 255, 0.34)";
+    ctx.strokeStyle = pal.centerLine;
     ctx.lineWidth = 2;
     ctx.setLineDash?.([6, 6]);
     ctx.beginPath();
@@ -939,11 +967,11 @@ export class RunnerGame {
       if (crestX < -60 || crestX > W + 60) continue;
       const moundTop = Math.min(groundY, h.peakCenterY + CAVE_HALF_H);
       const labelY = Math.min(groundY - 12, moundTop + 20);
-      ctx.fillStyle = "#d8b4fe";
+      ctx.fillStyle = pal.label;
       ctx.font = "bold 11px system-ui";
       ctx.fillText(h.label, crestX, labelY);
       if (labelY + 14 <= groundY - 6) {
-        ctx.fillStyle = "rgba(184, 196, 216, 0.75)";
+        ctx.fillStyle = pal.subLabel;
         ctx.font = "600 10px system-ui";
         ctx.fillText("↑ slow  ·  ↓ control", crestX, labelY + 14);
       }
@@ -1011,25 +1039,26 @@ export class RunnerGame {
 
   draw() {
     const { ctx, W, H, groundY, player: p } = this;
+    const pal = (this.pal = currentPalette());
 
     // Sky gradient
     if (this.flash > 0) {
-      ctx.fillStyle = "#4a2430";
+      ctx.fillStyle = pal.flash;
       ctx.fillRect(0, 0, W, H);
     } else {
       const sky = ctx.createLinearGradient(0, 0, 0, groundY);
-      sky.addColorStop(0, "#141928");
-      sky.addColorStop(1, "#1e273e");
+      sky.addColorStop(0, pal.skyTop);
+      sky.addColorStop(1, pal.skyBot);
       ctx.fillStyle = sky;
       ctx.fillRect(0, 0, W, groundY);
     }
 
     // Ground & scrolling track markers
-    ctx.fillStyle = "#242b3d";
+    ctx.fillStyle = pal.ground;
     ctx.fillRect(0, groundY, W, H - groundY);
-    ctx.fillStyle = "#4c3b6b";
+    ctx.fillStyle = pal.groundLine;
     ctx.fillRect(0, groundY, W, 2);
-    ctx.fillStyle = "#333d57";
+    ctx.fillStyle = pal.groundMark;
     for (let x = -this.groundOffset; x < W; x += 48) {
       ctx.fillRect(x, groundY + 11, 24, 3);
     }
@@ -1037,7 +1066,7 @@ export class RunnerGame {
     this.#drawObstaclesAndCoins(ctx);
 
     // Shadow shrinks cleanly as Dino Dan rises higher
-    ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
+    ctx.fillStyle = pal.shadow;
     const shadowScale = Math.max(0.4, 1 - (this.groundY - p.y) / 200);
     const sw = (this.mode === "runner" && p.ducking ? 40 : 30) * shadowScale;
     ctx.fillRect(p.x - sw / 2, groundY + 4, sw, 3);
@@ -1060,14 +1089,14 @@ export class RunnerGame {
     }
 
     // Clean single-row top HUD bar: Score · PB · Coins · Hits | Shield
-    ctx.fillStyle = "rgba(15, 18, 24, 0.76)";
+    ctx.fillStyle = pal.hudBg;
     ctx.fillRect(10, 10, W - 20, 38);
 
-    ctx.fillStyle = "#e8ecf3";
+    ctx.fillStyle = pal.hudText;
     ctx.font = "bold 15px system-ui";
     ctx.fillText(`Score ${this.score}`, 18, 34);
 
-    ctx.fillStyle = this.newPb ? "#f2b84b" : "#9aa8bf";
+    ctx.fillStyle = this.newPb ? "#f2b84b" : pal.hudMuted;
     ctx.font = "600 13px system-ui";
     ctx.fillText(`PB ${this.pb}`, 102, 34);
 
@@ -1079,16 +1108,16 @@ export class RunnerGame {
     ctx.fillText(`${this.coins}`, 176, 34);
 
     if (W >= 420) {
-      ctx.fillStyle = "#9aa8bf";
+      ctx.fillStyle = pal.hudMuted;
       ctx.fillText(`Hits ${this.hits}`, 214, 34);
     }
 
     const barW = Math.min(115, Math.max(60, Math.round(W * 0.22)));
     const shieldX = W - barW - 18;
-    ctx.fillStyle = "#b8c4d8";
+    ctx.fillStyle = pal.hudLabel;
     ctx.font = "600 11px system-ui";
     ctx.fillText(this.shieldActive ? "Shield READY" : "Shield (hold)", shieldX, 24);
-    ctx.fillStyle = "#2a3140";
+    ctx.fillStyle = pal.barTrack;
     ctx.fillRect(shieldX, 30, barW, 9);
     ctx.fillStyle = this.shieldActive ? "#7fb3ff" : "#4fd1a0";
     ctx.fillRect(shieldX, 30, barW * this.shield, 9);
