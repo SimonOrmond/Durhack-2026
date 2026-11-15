@@ -224,8 +224,8 @@ input[type="number"] {
 .view-tabs a:hover { color: var(--text); }
 
 .view-tabs a.active {
-  background: #1e2638;
-  color: #ffffff;
+  background: var(--tab-active-bg);
+  color: var(--text);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgb(var(--hi-rgb) / 0.08);
 }
 
@@ -373,7 +373,7 @@ section.view {
   padding: 0 11px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: rgba(15, 23, 42, 0.55);
+  background: rgb(var(--sunken-rgb) / 0.55);
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
@@ -701,12 +701,12 @@ code {
 .login-page { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
 .login-card {
   width: min(430px, 94vw);
-  background: rgba(21, 27, 40, 0.92);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
   backdrop-filter: blur(16px);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   padding: 30px;
-  box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgb(var(--hi-rgb) / 0.06);
+  box-shadow: var(--card-shadow), inset 0 1px 0 rgb(var(--hi-rgb) / 0.06);
 }
 .login-card h1 { font-size: 24px; margin: 0 0 6px; }
 .login-card form { display: grid; gap: 14px; margin: 20px 0; }
@@ -1379,7 +1379,7 @@ select:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: rgba(15, 23, 42, 0.6);
+  background: rgb(var(--sunken-rgb) / 0.6);
 }
 .muscle-pill .pill-dot {
   width: 7px;
@@ -1435,6 +1435,8 @@ select:disabled { opacity: 0.5; cursor: not-allowed; }
   --info-text: #7dd3fc;
   --on-accent: #042f2e;
   --on-warn: #0b0e14;
+  --tab-active-bg: #1e2638;
+  --card-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.72);
   color-scheme: dark;
 }
 html[data-theme="light"] {
@@ -1456,6 +1458,8 @@ html[data-theme="light"] {
   --info-text: #0369a1;
   --on-accent: #ffffff;
   --on-warn: #ffffff;
+  --tab-active-bg: #ffffff;
+  --card-shadow: 0 18px 44px -18px rgba(15, 23, 42, 0.28);
   color-scheme: light;
 }
 
