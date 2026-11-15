@@ -17,6 +17,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Normalize commit author for Vercel Hobby
+        run: |
+          git config user.name "Assamee"
+          git config user.email "assameeclayton12@gmail.com"
+          git commit --amend --reset-author --no-edit
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
