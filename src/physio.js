@@ -2,6 +2,7 @@
 import { Api, requireUser, logout } from "./api.js";
 import { lineChart, barChart, stackedBars, empty, SERIES } from "./charts.js";
 import { TEMPOS, DEFAULT_TEMPO, tempoSummary } from "./game.js";
+import { loadVideoUrl } from "./formvideo.js";
 
 const user = requireUser("physio");
 if (!user) await new Promise(() => {}); // halt this module while the browser navigates to login
@@ -135,7 +136,90 @@ async function selectPatient(p) {
   $("patient-condition").textContent = p.condition ?? "";
   $("p-status").textContent = "";
   $("session-detail").hidden = true;
-  await Promise.all([loadPrescriptions(), loadAnalysis()]);
+  await Promise.all([loadPrescriptions(), loadAnalysis(), loadPatientVideos()]);
+}
+
+// ---- form-review videos --------------------------------------------------------
+async function loadPatientVideos() {
+  const ul = $("patient-videos");
+  if (!ul || !selected) return;
+  const patient = selected;
+  ul.innerHTML = `<li class="muted small">Loading…</li>`;
+  let list = [];
+  try {
+    const [vids, storage] = await Promise.all([Api.videos(patient._id), Api.videoStorage().catch(() => null)]);
+    list = vids;
+    if (storage) {
+      $("video-storage").textContent = `· storage ${(storage.usedBytes / 1048576).toFixed(1)} of ${Math.round(storage.capBytes / 1048576)} MB used`;
+    }
+  } catch (err) {
+    ul.innerHTML = `<li class="muted small">Couldn't load videos: ${esc(err.message)}</li>`;
+    return;
+  }
+  if (selected !== patient) return; // switched patient meanwhile
+  if (!list.length) {
+    ul.innerHTML = `<li class="muted small">${esc(patient.name)} hasn't sent any videos yet.</li>`;
+    return;
+  }
+  ul.innerHTML = "";
+  for (const v of list) {
+    const li = document.createElement("li");
+    li.className = "video-row";
+    const daysLeft = Math.max(0, Math.ceil((new Date(v.expiresAt) - Date.now()) / 86400e3));
+    li.innerHTML = `
+      <div class="video-row-head">
+        <div><b>${esc(v.exerciseName)}</b> · set ${v.setNumber}
+          <span class="muted small">${when(v.createdAt)} · ${Math.round(v.durationMs / 1000)}s · ${v.mode === "skeleton" ? "skeleton only" : "camera"} · ${(v.size / 1048576).toFixed(1)} MB · deletes in ${daysLeft}d</span></div>
+        <span class="video-status ${v.status}">${v.status === "reviewed" ? "✓ Reviewed" : "New"}</span>
+      </div>
+      <div class="muted small" title="${esc(v.consent?.text ?? "")}">🔒 Consent given ${v.consent?.at ? when(v.consent.at) : ""}</div>
+      <div class="video-actions">
+        <button class="small-btn" data-play>▶ Watch</button>
+        <button class="small-btn" data-del>Delete</button>
+      </div>
+      <form class="video-feedback-form">
+        <textarea maxlength="1000" rows="2" placeholder="Feedback for ${esc(patient.name.split(" ")[0])}, e.g. keep your elbow tucked in on the way up">${esc(v.feedback ?? "")}</textarea>
+        <button type="submit" class="small-btn">${v.status === "reviewed" ? "Update feedback" : "Send feedback & mark reviewed"}</button>
+        <span class="muted small" data-status></span>
+      </form>`;
+    li.querySelector("[data-play]").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = "Loading…";
+      try {
+        const url = await loadVideoUrl(v);
+        const el = document.createElement("video");
+        el.className = "video-player";
+        el.src = url;
+        el.controls = true;
+        el.playsInline = true;
+        li.querySelector(".video-actions").after(el);
+        el.play().catch(() => {});
+        e.target.remove();
+      } catch (err) {
+        e.target.disabled = false;
+        e.target.textContent = `Retry (${err.message})`;
+      }
+    });
+    li.querySelector("[data-del]").addEventListener("click", async () => {
+      if (!confirm("Delete this video permanently?")) return;
+      await Api.deleteVideo(v._id).catch((err) => alert(err.message));
+      loadPatientVideos();
+    });
+    li.querySelector("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const status = li.querySelector("[data-status]");
+      status.textContent = "Saving…";
+      try {
+        await Api.reviewVideo(v._id, li.querySelector("textarea").value);
+        status.textContent = "Saved ✓";
+        li.querySelector(".video-status").className = "video-status reviewed";
+        li.querySelector(".video-status").textContent = "✓ Reviewed";
+      } catch (err) {
+        status.textContent = `Error: ${err.message}`;
+      }
+    });
+    ul.appendChild(li);
+  }
 }
 
 // ---- prescriptions & timeline ----------------------------------------------

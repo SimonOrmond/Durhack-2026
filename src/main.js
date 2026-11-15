@@ -9,6 +9,7 @@ import { Api, requireUser, logout } from "./api.js";
 import { SessionRecorder } from "./session.js";
 import { tempoOf, repTempoScore, tempoDirection } from "./tempo.js";
 import { initMuscleDemo } from "./muscle-demo.js";
+import { FormRecorder, askConsent, previewAndSend, loadVideoUrl, recordingSupported, RETENTION_DAYS } from "./formvideo.js";
 
 // Must be signed in (any role: physios can try the patient view too).
 const user = requireUser();
@@ -277,6 +278,7 @@ async function loadPlan() {
   }
   renderDashboard();
   renderPerformance();
+  loadMyVideos();
   renderWeeklyRx();
   renderPlanCards();
   if (!plan.length) {
@@ -354,6 +356,7 @@ function syncLock() {
   } else {
     btn.textContent = `▶ Start ${exercise?.name ?? "exercise"} (free play)`;
   }
+  syncRecordButton();
 }
 
 // ---- Dashboard: performance score, metrics and coaching tips ----
@@ -889,6 +892,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 
 /** Load a prescription: set the exercise, apply the physio's angle overrides, start recording. */
 async function applyPrescription(pr) {
+  if (!isLocked()) recArmed = null;
   if (isLocked()) {
     if (pr._id !== activePrescription?._id) warnLocked();
     return;
@@ -968,7 +972,14 @@ function startSet() {
     "good"
   );
   cueTimer = performance.now() + 2500;
+  // Patient consented to record "the next set": it starts now.
+  if (recArmed && running) {
+    const c = recArmed;
+    recArmed = null;
+    beginRecording(c);
+  }
   syncLock();
+  syncRecordButton();
 }
 
 /** Called after each counted rep while a prescription is being worked: handles set boundaries. */
@@ -982,6 +993,7 @@ function onPrescribedRep(tempo = "") {
   const inSet = recorder.repsInCurrentSet(pr.reps);
   if (inSet >= pr.reps) {
     recorder.completeSet();
+    if (formRec.recording) finishRecording(); // the recorded set is done: preview, then send or discard
     updateSetProgress();
     if (recorder.setsCompleted >= pr.sets) {
       completeSession();
@@ -1029,6 +1041,137 @@ const fmtClock = (msv) => {
   const s = Math.ceil(msv / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
+// ---- Form-review recording (consent first; nothing is sent until the patient presses Send) ----
+// var (not const): syncLock() may run before this line during start-up.
+var formRec = new FormRecorder({ video, overlay, badgeHost: video.parentElement });
+var recArmed = null; // consent given for "the next set"; recording starts when that set starts
+
+const currentSetNumber = () => (isUnlimited(activePrescription) ? 1 : Math.min(activePrescription?.sets ?? 1, recorder.setsCompleted + 1));
+
+function syncRecordButton() {
+  const btn = $("record-set");
+  if (!btn || !formRec) return;
+  const can = user.role === "patient" && !!activePrescription && recordingSupported() && setState !== "done";
+  btn.hidden = !can && !formRec.recording;
+  btn.classList.toggle("recording", formRec.recording);
+  btn.textContent = formRec.recording
+    ? "■ Stop recording"
+    : recArmed
+    ? "🎥 Records next set · cancel"
+    : "🎥 Record set for physio";
+}
+
+function beginRecording(c) {
+  const pr = activePrescription;
+  formRec.start({
+    mode: c.mode,
+    meta: {
+      prescriptionId: pr?._id ?? null,
+      exerciseKey: pr?.exerciseKey ?? exerciseKey,
+      exerciseName: pr?.exerciseName ?? exercise.name,
+      setNumber: currentSetNumber(),
+      consent: c.consent,
+    },
+    onAutoStop: () => {
+      flashCue("Recording reached the 90 second limit.", "warn");
+      finishRecording();
+    },
+  });
+  if (loop?.paused) formRec.pause();
+  flashCue("● Recording this set for your physio", "good");
+  cueTimer = performance.now() + 2500;
+  syncRecordButton();
+}
+
+/** Stop recording, then let the patient preview and choose Send or Discard. */
+async function finishRecording() {
+  const clip = await formRec.stop();
+  syncRecordButton();
+  if (!clip) return;
+  const result = await previewAndSend(clip);
+  flashCue(result === "sent" ? "Video sent to your physio ✓" : "Recording discarded. Nothing was sent.", result === "sent" ? "good" : "warn");
+  cueTimer = performance.now() + 4000;
+  if (result === "sent") loadMyVideos();
+}
+
+$("record-set")?.addEventListener("click", async () => {
+  if (formRec.recording) return finishRecording();
+  if (recArmed) {
+    recArmed = null;
+    flashCue("Recording cancelled.", "warn");
+    return syncRecordButton();
+  }
+  const c = await askConsent({ exerciseName: activePrescription?.exerciseName ?? exercise.name, setNumber: currentSetNumber() });
+  if (!c) return; // no consent: nothing is recorded
+  if (running && setState === "working") {
+    beginRecording(c);
+  } else {
+    recArmed = c;
+    flashCue(setState === "resting" ? "Recording will start with your next set." : "Recording will start when you press Start.", "good");
+    cueTimer = performance.now() + 3500;
+    syncRecordButton();
+  }
+});
+
+/** Progress page: the patient's sent videos, review status and physio feedback. */
+async function loadMyVideos() {
+  const ul = $("my-videos");
+  if (!ul) return;
+  if (user.role !== "patient") return ($("form-reviews-card").hidden = true);
+  let list = [];
+  try {
+    list = await Api.videos(user._id);
+  } catch (err) {
+    ul.innerHTML = `<li class="muted small">Couldn't load videos: ${esc(err.message)}</li>`;
+    return;
+  }
+  if (!list.length) {
+    ul.innerHTML = `<li class="muted small">No videos yet. On the Exercise page, press <b>🎥 Record set for physio</b> during a prescribed exercise to send one for a form check.</li>`;
+    return;
+  }
+  ul.innerHTML = "";
+  for (const v of list) {
+    const li = document.createElement("li");
+    li.className = "video-row";
+    const when = new Date(v.createdAt).toLocaleDateString([], { day: "numeric", month: "short" });
+    const daysLeft = Math.max(0, Math.ceil((new Date(v.expiresAt) - Date.now()) / 86400e3));
+    li.innerHTML = `
+      <div class="video-row-head">
+        <div><b>${esc(v.exerciseName)}</b> · set ${v.setNumber} <span class="muted small">${when} · ${Math.round(v.durationMs / 1000)}s · ${v.mode === "skeleton" ? "skeleton only" : "camera"} · deletes in ${daysLeft}d</span></div>
+        <span class="video-status ${v.status}">${v.status === "reviewed" ? "✓ Reviewed" : "Awaiting review"}</span>
+      </div>
+      ${v.feedback ? `<div class="video-feedback"><b>Physio feedback:</b> ${esc(v.feedback)}</div>` : ""}
+      <div class="video-actions">
+        <button class="small-btn" data-play>▶ Watch</button>
+        <button class="small-btn" data-del>Delete</button>
+      </div>`;
+    li.querySelector("[data-play]").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = "Loading…";
+      try {
+        const url = await loadVideoUrl(v);
+        const el = document.createElement("video");
+        el.className = "video-player";
+        el.src = url;
+        el.controls = true;
+        el.playsInline = true;
+        li.appendChild(el);
+        el.play().catch(() => {});
+        e.target.remove();
+      } catch (err) {
+        e.target.disabled = false;
+        e.target.textContent = `Retry (${err.message})`;
+      }
+    });
+    li.querySelector("[data-del]").addEventListener("click", async () => {
+      if (!confirm("Delete this video? Your physio will no longer be able to see it.")) return;
+      await Api.deleteVideo(v._id).catch((err) => alert(err.message));
+      loadMyVideos();
+    });
+    ul.appendChild(li);
+  }
+}
+
 $("skip-rest").addEventListener("click", () => {
   if (setState === "resting") {
     stopRestTimer();
@@ -1119,6 +1262,8 @@ async function stopExercise() {
   running = false;
   if (loop?.paused) setPaused(false);
   stopRestTimer();
+  recArmed = null;
+  if (formRec.recording) finishRecording(); // offer the partial set for preview / send / discard
   const hadReps = recorder.reps.length > 0;
   if (hadReps) await finishSession(false);
   if (activePrescription) {
@@ -1733,11 +1878,13 @@ function setPaused(paused) {
     if (setState === "resting") restRemainingMs = Math.max(0, restEndsAt - performance.now());
     loop.pause();
     game.pause("paused");
+    formRec.pause(); // recording pauses too (also when the patient leaves the Exercise tab)
     drawPausedVideoOverlay();
     setStatus("Paused");
     $("pause").textContent = "Resume";
   } else {
     smoother.reset();
+    formRec.resume();
     if (counter.phase === "active") {
       counter.phase = "rest";
       counter.minAfterPeak = null;

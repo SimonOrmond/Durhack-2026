@@ -38,7 +38,33 @@ export async function api(path, { method = "GET", body } = {}) {
   return data;
 }
 
+/** Raw binary request (video chunks). Returns JSON for uploads, an ArrayBuffer for downloads. */
+async function apiBinary(path, { method = "GET", body } = {}) {
+  const user = getUser();
+  const res = await fetch(`/api${path}`, {
+    method,
+    headers: { ...(body ? { "content-type": "application/octet-stream" } : {}), ...(user ? { "x-user-id": user._id } : {}) },
+    body,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `${method} ${path} failed (${res.status})`);
+  }
+  return method === "GET" ? res.arrayBuffer() : res.json();
+}
+
 export const Api = {
+  // Form-review videos
+  videoLimits: () => api("/videos/limits"),
+  startVideo: (meta) => api("/videos", { method: "POST", body: meta }),
+  uploadVideoChunk: (id, n, blob) => apiBinary(`/videos/${id}/chunks/${n}`, { method: "PUT", body: blob }),
+  completeVideo: (id) => api(`/videos/${id}/complete`, { method: "POST", body: {} }),
+  videos: (patientId) => api(`/patients/${patientId}/videos`),
+  videoChunk: (id, n) => apiBinary(`/videos/${id}/chunks/${n}`),
+  reviewVideo: (id, feedback) => api(`/videos/${id}`, { method: "PATCH", body: { feedback } }),
+  deleteVideo: (id) => api(`/videos/${id}`, { method: "DELETE" }),
+  videoStorage: () => api("/videos/storage"),
+
   login: (username, password) => api("/login", { method: "POST", body: { username, password } }),
   exercises: () => api("/exercises"),
   patients: (physioId) => api(`/physios/${physioId}/patients`),
